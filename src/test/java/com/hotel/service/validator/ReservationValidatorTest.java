@@ -35,19 +35,33 @@ class ReservationValidatorTest {
     }
 
     @Test
-    @DisplayName("숙박 일수가 30박을 초과하면 거절 사유가 반환되어야 한다")
-    void stayNights_ExceedsLimit_Rejected() {
+    @DisplayName("최대 허용 연박인 31박까지는 정상 통과해야 한다")
+    void stayNights_UpTo31Nights_Success() {
         Reservation r = new Reservation(
                 "RSV-002",
                 "Suzuki",
                 RoomType.MODERATE_DOUBLE,
-                35,
+                31, // 최대 허용치
+                "",
+                GuestPreference.empty()
+        );
+        assertNull(validator.validateSingle(r));
+    }
+
+    @Test
+    @DisplayName("숙박 일수가 31박을 초과(32박 이상)하면 거절 사유가 반환되어야 한다")
+    void stayNights_Exceeds31Nights_Rejected() {
+        Reservation r = new Reservation(
+                "RSV-003",
+                "Yamada",
+                RoomType.MODERATE_DOUBLE,
+                32, // 초과치
                 "",
                 GuestPreference.empty()
         );
         String reason = validator.validateSingle(r);
         assertNotNull(reason);
-        assertTrue(reason.contains("최대 숙박일수"));
+        assertTrue(reason.contains("최대 숙박일수(31박)를 초과했습니다"));
     }
 
     @Test
