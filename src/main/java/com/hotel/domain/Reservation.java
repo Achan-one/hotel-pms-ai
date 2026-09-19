@@ -1,10 +1,12 @@
 package com.hotel.domain;
+
 import java.util.Objects;
 
 public class Reservation {
     private final String reservationId;
     private final String guestName;
     private final RoomType bookedRoomType;
+    private final int stayNights;               // 숙박 일수 (추가: 1박 이상)
 
     private final String rawRequestText;
     private final GuestPreference preference;
@@ -12,10 +14,16 @@ public class Reservation {
     private String assignedRoomNumber;
 
     public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
-                       String rawRequestText, GuestPreference preference) {
+                       int stayNights, String rawRequestText, GuestPreference preference) {
         this.reservationId = Objects.requireNonNull(reservationId, "예약 ID는 필수입니다.");
         this.guestName = Objects.requireNonNull(guestName, "투숙객 이름은 필수입니다.");
         this.bookedRoomType = Objects.requireNonNull(bookedRoomType, "예약 객실 타입은 필수입니다.");
+
+        if (stayNights < 1) {
+            throw new IllegalArgumentException("숙박 일수는 최소 1박 이상이어야 합니다.");
+        }
+        this.stayNights = stayNights;
+
         this.rawRequestText = (rawRequestText != null && !rawRequestText.isBlank()) ? rawRequestText.trim() : null;
         this.preference = (preference != null) ? preference : GuestPreference.empty();
         this.assignedRoomNumber = null;
@@ -40,6 +48,7 @@ public class Reservation {
     public String getReservationId() { return reservationId; }
     public String getGuestName() { return guestName; }
     public RoomType getBookedRoomType() { return bookedRoomType; }
+    public int getStayNights() { return stayNights; }
     public String getRawRequestText() { return rawRequestText; }
     public GuestPreference getPreference() { return preference; }
     public String getAssignedRoomNumber() { return assignedRoomNumber; }
@@ -59,10 +68,11 @@ public class Reservation {
 
     @Override
     public String toString() {
-        return String.format("[%s | %s | %s | %s | 배정:%s]",
+        return String.format("[%s | %s | %s | %d박 | %s | 배정:%s]",
                 reservationId,
                 guestName,
                 bookedRoomType.getDescription(),
+                stayNights,
                 preference,
                 isAssigned() ? (assignedRoomNumber + "호") : "미배정"
         );
