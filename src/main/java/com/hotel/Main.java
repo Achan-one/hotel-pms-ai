@@ -6,62 +6,155 @@ import com.hotel.domain.Room;
 import com.hotel.domain.RoomType;
 import com.hotel.repository.RoomRepository;
 import com.hotel.service.AiPreferenceParser;
+import com.hotel.service.BatchAssigner;
+import com.hotel.service.BatchAssignmentResult;
 import com.hotel.service.RoomAssigner;
 
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 public class Main {
+
     public static void main(String[] args) {
         RoomRepository repository = new RoomRepository();
         RoomAssigner assigner = new RoomAssigner(repository);
         AiPreferenceParser aiParser = new AiPreferenceParser();
 
-        System.out.println("==================================================");
-        System.out.println("🏨 호텔 PMS AI 기반 객실 배정 시뮬레이션");
-        System.out.println("==================================================\n");
+        System.out.println("================================================================================");
+        System.out.println("🏨 [대량 검증] 50건 다국어 자연어 메모 -> 단 1회 Gemini API 배치 파싱 & 배정");
+        System.out.println("   엔진 설정: " + aiParser.getConfig());
+        System.out.println("================================================================================\n");
 
-        // 케이스 1: 뉘앙스 한국어 요청 (어르신 동반 -> 저층, 엘베 근처 추론)
-        String memo1 = "부모님이 무릎이 안 좋으셔서 계단이나 걷는 거 최대한 적었으면 좋겠습니다.";
-        System.out.println("🤖 [AI 분석 중] 원문: \"" + memo1 + "\"");
-        GuestPreference pref1 = aiParser.parse(memo1);
-        System.out.println("=> 추출 결과: " + pref1);
+        // 1. 사전 체크인(재실) 20실 세팅
+        simulateExistingCheckIns(repository, 20);
+        long preOccupied = repository.findAll().stream().filter(Room::isAssigned).count();
+        System.out.printf("📌 [초기 상태] 기존 재실 객실: %d실 / 배정 가능 공실: %d실%n%n",
+                preOccupied, 191 - preOccupied);
 
-        Reservation res1 = new Reservation(
-                "RSV-AI-01", "이순신", RoomType.SUPERIOR_DOUBLE, 2, memo1, pref1
-        );
-        executeAssignment(assigner, res1);
-
+        // 2. 실제 다국어 요청 메모가 포함된 50개 예약 생성 (초기에는 preference = empty)
+        List<Reservation> rawReservations = generate50RealisticReservations();
+        System.out.printf("📝 50건의 비정형 예약 생성 완료 (한국어, 일본어, 영어, 무요청 혼합)%n");
+        System.out.println("   샘플 1: " + rawReservations.get(0).getRawRequestText());
+        System.out.println("   샘플 2: " + rawReservations.get(1).getRawRequestText());
+        System.out.println("   샘플 3: " + rawReservations.get(2).getRawRequestText());
         System.out.println();
 
-        // 케이스 2: 일본어 복합 요청 (고층, 조용함, 안쪽 방 선호)
-        String memo2 = "できれば高層階の静かな部屋を希望します。エレベーターから離れた奥の部屋が良いです。";
-        System.out.println("🤖 [AI 분석 중] 원문: \"" + memo2 + "\"");
-        GuestPreference pref2 = aiParser.parse(memo2);
-        System.out.println("=> 추출 결과: " + pref2);
+        // 3. 🚀 단 1회의 Gemini API 호출로 50건 일괄 정제!
+        System.out.println("⚡ [Gemini 2.5 Flash] 50건 일괄 배치 분석 요청 전송 중 (Single API Call)...");
+        long startTime = System.currentTimeMillis();
+        Map<String, GuestPreference> parsedPreferences = aiParser.parseBatch(rawReservations);
+        long elapsed = System.currentTimeMillis() - startTime;
+        System.out.printf("✅ AI 일괄 정제 완료! 소요시간: %d ms (분석된 선호도: %d건)%n%n", elapsed, parsedPreferences.size());
 
-        Reservation res2 = new Reservation(
-                "RSV-AI-02", "田中", RoomType.MODERATE_DOUBLE, 3, memo2, pref2
-        );
-        executeAssignment(assigner, res2);
+        // 4. AI가 정제해 준 선호도를 각 Reservation에 주입 (withPreference)
+        List<Reservation> enrichedReservations = new ArrayList<>();
+        for (Reservation rsv : rawReservations) {
+            GuestPreference pref = parsedPreferences.getOrDefault(rsv.getReservationId(), GuestPreference.empty());
+            enrichedReservations.add(rsv.withPreference(pref));
+        }
+
+        // 정제 샘플 3건 확인
+        System.out.println("🔍 [AI 정제 샘플 확인]");
+        for (int i = 0; i < 3; i++) {
+            Reservation r = enrichedReservations.get(i);
+            System.out.printf("   - [%s | %s] 메모: \"%s\"%n     => AI 분석: %s%n",
+                    r.getReservationId(), r.getGuestName(), r.getRawRequestText(), r.getPreference());
+        }
+        System.out.println();
+
+        // 5. 정제된 50개 예약으로 일괄 배정 엔진(BatchAssigner) 가동
+        System.out.println("⚙️ [배치 배정 엔진] 우선순위(장기숙박, 요구조건 난이도) 기반 배정 시작...");
+        BatchAssigner batchAssigner = new BatchAssigner(assigner);
+        BatchAssignmentResult result = batchAssigner.assignAll(enrichedReservations);
+// 6. 50건 전체 상세 배정 표 출력
+        // 배정 성공한 예약들을 ID 기준으로 빠르게 찾기 위해 Map으로 변환
+        Map<String, Reservation> successMap = result.getSuccessfulAssignments().stream()
+                .collect(java.util.stream.Collectors.toMap(Reservation::getReservationId, r -> r));
+
+        System.out.println("========================================================================================================================");
+        System.out.printf("%-13s | %-16s | %-4s | %-24s | %-26s | %s%n",
+                "예약ID", "객실타입", "박수", "고객 요청 메모(원문)", "AI 선호도 정제", "최종 배정 결과");
+        System.out.println("------------------------------------------------------------------------------------------------------------------------");
+
+        for (Reservation r : enrichedReservations) {
+            String memo = r.getRawRequestText();
+            if (memo == null || memo.isBlank()) memo = "(요청 없음)";
+            else if (memo.length() > 16) memo = memo.substring(0, 14) + "..";
+
+            // 성공 맵에 존재하면 배정된 방 번호를 가져오고, 없으면 실패 처리
+            Reservation successRes = successMap.get(r.getReservationId());
+            String resultRoom = (successRes != null && successRes.isAssigned())
+                    ? successRes.getAssignedRoomNumber() + "호 확정"
+                    : "❌ 배정실패(만실)";
+
+            System.out.printf("%-13s | %-16s | %-3d박 | %-22s | %-24s | %s%n",
+                    r.getReservationId(),
+                    r.getBookedRoomType().name(),
+                    r.getStayNights(),
+                    memo,
+                    r.getPreference(),
+                    resultRoom
+            );
+        }
+        System.out.println("========================================================================================================================\n");
+
+        System.out.println(result.toSummaryString());
     }
 
-    private static void executeAssignment(RoomAssigner assigner, Reservation res) {
-        Optional<Room> assignedRoomOpt = assigner.assign(res);
-
-        System.out.println("--------------------------------------------------");
-        System.out.println("요청: " + res);
-        if (assignedRoomOpt.isPresent()) {
-            Room room = assignedRoomOpt.get();
-            System.out.printf("=> [배정 확정] %s호 | %d층 | %s | 엘베:%s | 코너:%s%n",
-                    room.getRoomNumber(),
-                    room.getFloor(),
-                    room.getRoomType().getDescription(),
-                    room.isNearElevator() ? "인접" : "이격",
-                    room.isCorner() ? "코너" : "일반"
-            );
-        } else {
-            System.out.println("=> [배정 실패] 잔여 객실 없음");
+    private static void simulateExistingCheckIns(RoomRepository repo, int count) {
+        List<Room> vacantRooms = repo.findAll().stream().filter(r -> !r.isAssigned()).toList();
+        Random random = new Random(42);
+        int occupied = 0;
+        for (Room room : vacantRooms) {
+            if (occupied >= count) break;
+            if (random.nextBoolean()) {
+                room.assign();
+                occupied++;
+            }
         }
-        System.out.println("--------------------------------------------------");
+        for (Room room : vacantRooms) {
+            if (occupied >= count) break;
+            if (!room.isAssigned()) {
+                room.assign();
+                occupied++;
+            }
+        }
+    }
+
+    private static List<Reservation> generate50RealisticReservations() {
+        List<Reservation> list = new ArrayList<>();
+        RoomType[] types = RoomType.values();
+
+        // 추가할 것들은 여기 아래 배열에 넣고 테스트해주세요.
+        String[] realisticNotes = {
+                "어머니 무릎이 안 좋으셔서 엘리베이터 가깝고 낮은 층으로 부탁드립니다.",
+                "静かに過ごしたいので、エレベーターから離れた高層階の部屋をお願いします。",
+                "High floor with a nice view, far from elevator please.",
+                "결혼기념일 여행이라 전망 좋은 끝방/코너룸 배정해주시면 감사하겠습니다.",
+                "足が不自由なため、できるだけ低層階かつエレベーター近くの部屋が希望です。",
+                "Baby sleeping, very quiet room needed away from lift noise.",
+                "야간 근무 후 쉬러 갑니다. 조용한 안쪽 방으로 주세요.",
+                "眺めの良い角部屋を希望します。",
+                "No specific request, thank you.",
+                "밥이 먹고 싶은데요?",
+                "모두 고생하십니다. 나중에 인사드리러 갈게요",
+                "" // 요청 없음
+        };
+
+        Random rand = new Random(2026);
+
+        for (int i = 1; i <= 50; i++) {
+            String rsvId = String.format("RSV-BATCH-%03d", i);
+            String guestName = "Guest_" + i;
+            RoomType type = types[rand.nextInt(types.length)];
+            int nights = rand.nextInt(5) + 1; // 1~5박
+            String note = realisticNotes[i % realisticNotes.length];
+
+            list.add(new Reservation(rsvId, guestName, type, nights, note, GuestPreference.empty()));
+        }
+
+        return list;
     }
 }

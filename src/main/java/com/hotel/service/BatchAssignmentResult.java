@@ -35,6 +35,17 @@ public class BatchAssignmentResult {
         return failedAssignments.size();
     }
 
+    public String toSummaryString() {
+        return String.format("""
+            ==================================================
+            📊 [배치 배정 결과 요약]
+            - 총 요청 건수: %d건
+            - 배정 성공: %d건
+            - 배정 실패(만실 등): %d건
+            ==================================================""",
+                getTotalCount(), getSuccessCount(), getFailureCount());
+    }
+
     @Override
     public String toString() {
         return String.format("BatchAssignmentResult[총 %d건 | 성공: %d건 | 실패(만실 등): %d건]",

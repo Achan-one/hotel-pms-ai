@@ -60,6 +60,16 @@ public class Reservation {
         Reservation that = (Reservation) o;
         return Objects.equals(reservationId, that.reservationId);
     }
+    public Reservation withPreference(GuestPreference newPreference) {
+        return new Reservation(
+                this.reservationId,
+                this.guestName,
+                this.bookedRoomType,
+                this.stayNights,
+                this.rawRequestText,
+                newPreference
+        );
+    }
 
     @Override
     public int hashCode() {
