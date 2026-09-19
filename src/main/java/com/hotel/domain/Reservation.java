@@ -70,7 +70,10 @@ public class Reservation {
     }
 
     public LocalDate getCheckOutDate() {
-        return checkInDate != null ? checkInDate.plusDays(stayNights) : null;
+        if (this.checkInDate == null) {
+            return null;
+        }
+        return this.checkInDate.plusDays(this.stayNights);
     }
 
     // Getters
