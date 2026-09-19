@@ -33,4 +33,20 @@ public class GuestPreference {
         return String.format("[선호도 | 층:%s | EV:%s | 코너:%s | 조용함:%s]",
                 floorPref, elevatorPref, cornerPref, preferQuiet ? "O" : "X");
     }
+    public int getConstraintCount() {
+        int count = 0;
+        if (floorPref != FloorPref.NONE) {
+            count++;
+        }
+        if (elevatorPref != ElevatorPref.NONE) {
+            count++;
+        }
+        if (cornerPref != CornerPref.NONE) {
+            count++;
+        }
+        if (preferQuiet) {
+            count++;
+        }
+        return count;
+    }
 }
