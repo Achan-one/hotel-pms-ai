@@ -10,6 +10,7 @@ import com.hotel.service.BatchAssigner;
 import com.hotel.service.BatchAssignmentResult;
 import com.hotel.service.RoomAssigner;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,7 @@ public class Main {
         AiPreferenceParser aiParser = new AiPreferenceParser();
 
         System.out.println("================================================================================");
-        System.out.println("🏨 [대량 검증] 50건 다국어 자연어 메모 -> 단 1회 Gemini API 배치 파싱 & 배정");
+        System.out.println("🏨 [대량 검증] 50건 다국어 자연어 메모 -> 단 1회 Gemini API 배치 파싱 & 날짜 기반 배정");
         System.out.println("   엔진 설정: " + aiParser.getConfig());
         System.out.println("================================================================================\n");
 
@@ -33,7 +34,7 @@ public class Main {
         System.out.printf("📌 [초기 상태] 기존 재실 객실: %d실 / 배정 가능 공실: %d실%n%n",
                 preOccupied, 191 - preOccupied);
 
-        // 2. 실제 다국어 요청 메모가 포함된 50개 예약 생성 (초기에는 preference = empty)
+        // 2. 실제 다국어 요청 메모 및 체크인 날짜가 포함된 50개 예약 생성
         List<Reservation> rawReservations = generate50RealisticReservations();
         System.out.printf("📝 50건의 비정형 예약 생성 완료 (한국어, 일본어, 영어, 무요청 혼합)%n");
         System.out.println("   샘플 1: " + rawReservations.get(0).getRawRequestText());
@@ -41,7 +42,7 @@ public class Main {
         System.out.println("   샘플 3: " + rawReservations.get(2).getRawRequestText());
         System.out.println();
 
-        // 3. 🚀 단 1회의 Gemini API 호출로 50건 일괄 정제!
+        // 3. 단 1회의 Gemini API 호출로 50건 일괄 정제
         System.out.println("⚡ [Gemini 2.5 Flash] 50건 일괄 배치 분석 요청 전송 중 (Single API Call)...");
         long startTime = System.currentTimeMillis();
         Map<String, GuestPreference> parsedPreferences = aiParser.parseBatch(rawReservations);
@@ -68,37 +69,38 @@ public class Main {
         System.out.println("⚙️ [배치 배정 엔진] 우선순위(장기숙박, 요구조건 난이도) 기반 배정 시작...");
         BatchAssigner batchAssigner = new BatchAssigner(assigner);
         BatchAssignmentResult result = batchAssigner.assignAll(enrichedReservations);
-// 6. 50건 전체 상세 배정 표 출력
-        // 배정 성공한 예약들을 ID 기준으로 빠르게 찾기 위해 Map으로 변환
+
+        // 6. 50건 전체 상세 배정 표 출력 (투숙 기간 컬럼 포함)
         Map<String, Reservation> successMap = result.getSuccessfulAssignments().stream()
                 .collect(java.util.stream.Collectors.toMap(Reservation::getReservationId, r -> r));
 
-        System.out.println("========================================================================================================================");
-        System.out.printf("%-13s | %-16s | %-4s | %-24s | %-26s | %s%n",
-                "예약ID", "객실타입", "박수", "고객 요청 메모(원문)", "AI 선호도 정제", "최종 배정 결과");
-        System.out.println("------------------------------------------------------------------------------------------------------------------------");
+        System.out.println("==========================================================================================================================================");
+        System.out.printf("%-13s | %-16s | %-23s | %-24s | %-26s | %s%n",
+                "예약ID", "객실타입", "투숙 기간 (체크인~체크아웃)", "고객 요청 메모(원문)", "AI 선호도 정제", "최종 배정 결과");
+        System.out.println("------------------------------------------------------------------------------------------------------------------------------------------");
 
         for (Reservation r : enrichedReservations) {
             String memo = r.getRawRequestText();
             if (memo == null || memo.isBlank()) memo = "(요청 없음)";
             else if (memo.length() > 16) memo = memo.substring(0, 14) + "..";
 
-            // 성공 맵에 존재하면 배정된 방 번호를 가져오고, 없으면 실패 처리
             Reservation successRes = successMap.get(r.getReservationId());
             String resultRoom = (successRes != null && successRes.isAssigned())
                     ? successRes.getAssignedRoomNumber() + "호 확정"
                     : "❌ 배정실패(만실)";
 
-            System.out.printf("%-13s | %-16s | %-3d박 | %-22s | %-24s | %s%n",
+            String periodStr = String.format("%s~%s(%d박)", r.getCheckInDate(), r.getCheckOutDate(), r.getStayNights());
+
+            System.out.printf("%-13s | %-16s | %-23s | %-22s | %-24s | %s%n",
                     r.getReservationId(),
                     r.getBookedRoomType().name(),
-                    r.getStayNights(),
+                    periodStr,
                     memo,
                     r.getPreference(),
                     resultRoom
             );
         }
-        System.out.println("========================================================================================================================\n");
+        System.out.println("==========================================================================================================================================\n");
 
         System.out.println(result.toSummaryString());
     }
@@ -127,7 +129,6 @@ public class Main {
         List<Reservation> list = new ArrayList<>();
         RoomType[] types = RoomType.values();
 
-        // 추가할 것들은 여기 아래 배열에 넣고 테스트해주세요.
         String[] realisticNotes = {
                 "어머니 무릎이 안 좋으셔서 엘리베이터 가깝고 낮은 층으로 부탁드립니다.",
                 "静かに過ごしたいので、エレベーターから離れた高層階の部屋をお願いします。",
@@ -140,19 +141,23 @@ public class Main {
                 "No specific request, thank you.",
                 "밥이 먹고 싶은데요?",
                 "모두 고생하십니다. 나중에 인사드리러 갈게요",
-                "" // 요청 없음
+                ""
         };
 
         Random rand = new Random(2026);
+        LocalDate baseDate = LocalDate.now();
 
         for (int i = 1; i <= 50; i++) {
             String rsvId = String.format("RSV-BATCH-%03d", i);
             String guestName = "Guest_" + i;
             RoomType type = types[rand.nextInt(types.length)];
-            int nights = rand.nextInt(5) + 1; // 1~5박
+
+            // 체크인 날짜를 오늘, 내일, 모레 중 하나로 분산
+            LocalDate checkIn = baseDate.plusDays(rand.nextInt(3));
+            int nights = rand.nextInt(4) + 1; // 1~4박
             String note = realisticNotes[i % realisticNotes.length];
 
-            list.add(new Reservation(rsvId, guestName, type, nights, note, GuestPreference.empty()));
+            list.add(new Reservation(rsvId, guestName, type, checkIn, nights, note, GuestPreference.empty()));
         }
 
         return list;

@@ -6,6 +6,7 @@ import com.hotel.domain.GuestPreference.ElevatorPref;
 import com.hotel.domain.GuestPreference.FloorPref;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.Room;
+import com.hotel.domain.StayPeriod;
 import com.hotel.repository.RoomRepository;
 
 import java.util.Comparator;
@@ -29,9 +30,11 @@ public class RoomAssigner {
             return roomRepository.findByRoomNumber(reservation.getAssignedRoomNumber());
         }
 
-        // Pass 1: Hard Filter (잔여 객실 및 계약 룸타입 검증)
+        StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+
+        // Pass 1: Hard Filter (요청 기간 공실 검증 및 계약 룸타입 검증)
         List<Room> candidates = roomRepository.findAll().stream()
-                .filter(room -> !room.isAssigned())
+                .filter(room -> room.isAvailable(targetPeriod))
                 .filter(room -> room.getRoomType() == reservation.getBookedRoomType())
                 .toList();
 
@@ -46,9 +49,9 @@ public class RoomAssigner {
         Optional<Room> bestRoomOpt = candidates.stream()
                 .max(Comparator.comparingInt(room -> calculateScore(room, pref, stayNights)));
 
-        // 배정 확정: 양방향 동기화
+        // 배정 확정: 기간 등록 및 예약 객실 번호 동기화
         bestRoomOpt.ifPresent(bestRoom -> {
-            bestRoom.assign();
+            bestRoom.bookPeriod(targetPeriod);
             reservation.assignRoom(bestRoom.getRoomNumber());
         });
 
