@@ -22,7 +22,7 @@ public class GuestPreference {
         return new GuestPreference(FloorPref.NONE, ElevatorPref.NONE, CornerPref.NONE, false);
     }
 
-    // 외부에 열어주는 public Getter
+    // Getter
     public FloorPref getFloorPref() { return floorPref; }
     public ElevatorPref getElevatorPref() { return elevatorPref; }
     public CornerPref getCornerPref() { return cornerPref; }

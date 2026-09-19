@@ -34,7 +34,7 @@ public class Room {
         this.assigned = false;
     }
 
-    // 외부에 열어주는 public Getter
+    // Getter
     public String getRoomNumber() { return roomNumber; }
     public int getFloor() { return floor; }
     public RoomType getRoomType() { return roomType; }
