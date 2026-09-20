@@ -82,6 +82,27 @@ public class Room {
         this.bookedPeriods.clear();
     }
 
+
+     // 룸 체인지 또는 특정 예약 취소 시 투숙 기간 반납
+
+    public boolean cancelPeriod(StayPeriod period) {
+        if (period == null) {
+            return false;
+        }
+        boolean removed = this.bookedPeriods.remove(period);
+        if (this.bookedPeriods.isEmpty()) {
+            this.assigned = false;
+        }
+        return removed;
+    }
+
+
+    // 특정 투숙 기간에 충돌(이미 다른 예약 존재)이 있는지 확인
+
+    public boolean hasScheduleConflict(StayPeriod period) {
+        return !isAvailable(period);
+    }
+
     // Getters
     public String getRoomNumber() { return roomNumber; }
     public int getFloor() { return floor; }
