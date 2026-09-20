@@ -139,13 +139,16 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("[5. 체크아웃 처리] 투숙 중 고객은 프론트 정산 완료 후 정상 퇴실(CHECKED_OUT)되어야 한다")
+    @DisplayName("[5. 체크아웃 처리] 투숙 중 고객은 프론트 정산 완료 후 정상 퇴실(CHECKED_OUT)되며 객실은 OUT 상태로 전이된다")
     void processCheckOut_Success() {
         // Given: 체크인 완료된 손님
         Reservation r1 = new Reservation("RSV-OUT-01", "Lee", RoomType.MODERATE_DOUBLE, today, 1, null, null);
         reservationService.receiveReservations(List.of(r1));
         reservationService.runDailyBatchAssignment(today);
         reservationService.processCheckIn("RSV-OUT-01");
+
+        Reservation checkedIn = reservationRepository.findById("RSV-OUT-01").orElseThrow();
+        String assignedRoom = checkedIn.getAssignedRoomNumber();
 
         // When: 실무 정산 처리 후 체크아웃
         r1.getPaymentLedger().settle();
@@ -155,6 +158,10 @@ class ReservationServiceTest {
         Reservation checkedOut = reservationRepository.findById("RSV-OUT-01").orElseThrow();
         assertEquals(ReservationStatus.CHECKED_OUT, checkedOut.getStatus());
         assertFalse(checkedOut.getStatus().isInHouse());
+
+        // 실물 Room의 하우스키핑 상태가 OUT으로 전이되었는지 검증
+        Room room = roomRepository.findByRoomNumber(assignedRoom).orElseThrow();
+        assertEquals(RoomStatus.OUT, room.getStatus(), "체크아웃된 객실은 청소 대기(OUT) 상태여야 합니다.");
     }
 
     @Test

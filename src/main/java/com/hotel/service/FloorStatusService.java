@@ -55,14 +55,16 @@ public class FloorStatusService {
             String stayPeriodStr = null;
 
             if (matchedRes != null) {
-                status = RoomStatus.ASSIGNED;
+                // 당일 활성 예약이 배정된 경우
+                status = matchedRes.getStatus().isInHouse() ? RoomStatus.OCCUPIED : RoomStatus.ASSIGNED;
                 rsvId = matchedRes.getReservationId();
                 guestName = matchedRes.getGuestName();
                 stayPeriodStr = String.format("%s ~ %s", matchedRes.getCheckInDate(), matchedRes.getCheckOutDate());
             } else if (room.isOccupiedOn(date)) {
                 status = RoomStatus.OCCUPIED;
             } else {
-                status = RoomStatus.VACANT;
+                // 예약/스케줄이 없는 방은 실물 룸 랙 상태(OUT, CLEANING, BREAK, VACANT 등)를 온전히 반영
+                status = room.getStatus();
             }
 
             dtoList.add(new RoomMatrixItemDto(

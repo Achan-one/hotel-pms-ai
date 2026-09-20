@@ -18,11 +18,12 @@ public class ReservationService {
     private final AiPreferenceParser aiParser;
     private final BatchAssigner batchAssigner;
     private final RoomChangeService roomChangeService;
+    private final RoomRepository roomRepository;
 
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser) {
-        Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
+        this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.reservationRepository = Objects.requireNonNull(reservationRepository, "reservationRepository는 필수입니다.");
         this.validator = new ReservationValidator();
         this.aiParser = (aiParser != null) ? aiParser : new AiPreferenceParser();
@@ -123,14 +124,21 @@ public class ReservationService {
 
     /**
      * [5. 프론트 데스크 체크아웃]
-     * STAYING / ROOM_CHANGED -> CHECKED_OUT 상태 전이
+     * CHECKED_IN / ROOM_CHANGED -> CHECKED_OUT 상태 전이 및 객실 실물 OUT(체크아웃 청소 대기) 반영
      */
     public void processCheckOut(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
         reservation.checkOut();
         reservationRepository.save(reservation);
-    }
 
+        // 실물 객실 상태를 체크아웃 완료 청소 대기(OUT)로 전이
+        String roomNumber = reservation.getAssignedRoomNumber();
+        if (roomNumber != null) {
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+                room.setStatus(RoomStatus.OUT);
+            });
+        }
+    }
     /**
      * [6. 다조건 통합 검색]
      */
