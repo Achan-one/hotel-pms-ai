@@ -5,6 +5,7 @@ import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.service.*;
 import com.hotel.service.dto.FloorMapResponseDto;
+import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 import com.hotel.service.dto.RoomMatrixItemDto;
 
@@ -31,7 +32,7 @@ public class Main {
         System.out.println("   AI 엔진 설정: " + aiParser.getConfig());
         System.out.println("================================================================================\n");
 
-        // 3. 기준일 이전 체크인한 기존 투숙객 20실 사전 세팅
+        // 3. 기준일 이전 체크인한 기존 투숙객 20실 사전 안전 세팅
         simulateExistingCheckInsWithSchedule(roomRepository, 20, today);
         long preOccupied = roomRepository.findAll().stream().filter(r -> r.isOccupiedOn(today)).count();
         System.out.printf("📌 [초기 상태] 기존 투숙 객실: %d실 / 배정 가능 공실: %d실%n%n",
@@ -67,7 +68,6 @@ public class Main {
 
         for (Reservation r : acceptedReservations) {
             String memo = r.getRawRequestText();
-            // 요청 메모가 실제로 존재하는 건들만 선별 출력
             if (memo != null && !memo.isBlank()) {
                 String memoPreview = (memo.length() > 16) ? memo.substring(0, 14) + ".." : memo;
                 Reservation matchedSuccess = successMap.get(r.getReservationId());
@@ -93,7 +93,7 @@ public class Main {
         }
         System.out.println("========================================================================================================================\n");
 
-        // 7. ⚠️ [배정 실패 건 상세 목록] 아래에 별도 격리 출력
+        // 7. ⚠️ [배정 실패 건 상세 목록]
         List<Reservation> failedList = assignmentResult.getFailedAssignments();
         if (!failedList.isEmpty()) {
             System.out.println("================================================================================");
@@ -120,7 +120,7 @@ public class Main {
             System.out.println("🎉 축하합니다! 모든 예약이 100% 성공적으로 객실에 배정되었습니다.\n");
         }
 
-        // 8. 🛎️ 프론트 데스크 실무: 첫 번째 배정 고객 체크인(STAYING) 후 수동 룸 체인지(ROOM_CHANGED) 시뮬레이션
+        // 8. 🛎️ 프론트 데스크 실무: 첫 번째 배정 고객 체크인(STAYING) 후 수동 룸 체인지 시뮬레이션
         Reservation firstAssigned = assignmentResult.getSuccessfulAssignments().stream().findFirst().orElse(null);
         if (firstAssigned != null) {
             String resId = firstAssigned.getReservationId();
@@ -131,19 +131,29 @@ public class Main {
             System.out.printf("🛎️ [프론트 체크인] 고객 [%s] 키 발급 완료 -> 상태: %s (%s호)%n",
                     checkedInGuest.getGuestName(), checkedInGuest.getStatus().getTitle(), checkedInGuest.getAssignedRoomNumber());
 
-            // 동일 타입 대체 공실 탐색 후 룸 무브 실행 (STAYING -> ROOM_CHANGED)
+            // 이동 가능한 정비 완료 공실(VACANT) 및 동일 타입 탐색
             String originRoom = checkedInGuest.getAssignedRoomNumber();
-            StayPeriod movePeriod = new StayPeriod(checkedInGuest.getCheckInDate(), checkedInGuest.getStayNights());
+            StayPeriod remainingPeriod = new StayPeriod(today, checkedInGuest.getStayNights());
 
             Room emptySameTypeRoom = roomRepository.findAll().stream()
                     .filter(room -> room.getRoomType() == checkedInGuest.getBookedRoomType())
                     .filter(room -> !room.getRoomNumber().equals(originRoom))
-                    .filter(room -> room.isAvailable(movePeriod))
+                    .filter(room -> room.getStatus().isAssignable()) // VACANT 상태 방어
+                    .filter(room -> room.isAvailable(remainingPeriod))
                     .findFirst()
                     .orElse(null);
 
             if (emptySameTypeRoom != null) {
-                RoomChangeResult changeResult = reservationService.processRoomChange(resId, emptySameTypeRoom.getRoomNumber());
+                // 실무 요청 DTO 생성
+                RoomChangeRequest changeRequest = new RoomChangeRequest(
+                        resId,
+                        emptySameTypeRoom.getRoomNumber(),
+                        today,
+                        "고객 현장 요청 (전망 개선)"
+                );
+
+                RoomChangeResult changeResult = reservationService.processRoomChange(changeRequest);
+
                 Reservation movedGuest = reservationService.getReservation(resId).orElseThrow();
                 System.out.printf("🔄 [수동 룸 체인지] 고객 [%s] 객실 이동 완료: %s -> %s호 | 상태: %s%n",
                         movedGuest.getGuestName(), originRoom, movedGuest.getAssignedRoomNumber(), movedGuest.getStatus().name());
@@ -206,25 +216,27 @@ public class Main {
         return sb.toString();
     }
 
+    /**
+     * 안전한 사전 재실 시뮬레이션: 중복 bookPeriod 충돌 방지 및 RoomStatus 동기화
+     */
     private static void simulateExistingCheckInsWithSchedule(RoomRepository repo, int count, LocalDate today) {
-        List<Room> allRooms = repo.findAll();
-        Random random = new Random(42);
-        int occupied = 0;
+        List<Room> allRooms = new ArrayList<>(repo.findAll());
+        Collections.shuffle(allRooms, new Random(42)); // 일관된 시뮬레이션을 위한 고정 시드
 
+        int occupiedCount = 0;
         for (Room room : allRooms) {
-            if (occupied >= count) break;
-            if (random.nextBoolean()) {
-                StayPeriod inHousePeriod = new StayPeriod(today.minusDays(1), 3);
-                room.bookPeriod(inHousePeriod);
-                occupied++;
-            }
-        }
-        for (Room room : allRooms) {
-            if (occupied >= count) break;
-            if (room.isAvailable(new StayPeriod(today, 1))) {
-                StayPeriod inHousePeriod = new StayPeriod(today.minusDays(2), 4);
-                room.bookPeriod(inHousePeriod);
-                occupied++;
+            if (occupiedCount >= count) break;
+
+            // 어제 또는 그저께 입실하여 앞으로 2~3일 더 머무는 현실적 재실 스케줄 생성
+            int pastDays = (occupiedCount % 2 == 0) ? 1 : 2;
+            int totalNights = pastDays + 2; // 오늘 이후로도 투숙이 이어지도록 설정
+
+            StayPeriod stayPeriod = new StayPeriod(today.minusDays(pastDays), totalNights);
+
+            if (room.isAvailable(stayPeriod)) {
+                room.bookPeriod(stayPeriod);
+                room.setStatus(RoomStatus.OCCUPIED); // 룸 랙 상태도 재실로 동기화
+                occupiedCount++;
             }
         }
     }
