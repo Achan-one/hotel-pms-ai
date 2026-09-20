@@ -1,6 +1,7 @@
 package com.hotel;
 
 import com.hotel.domain.*;
+import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.service.*;
 import com.hotel.service.dto.FloorMapResponseDto;
@@ -13,91 +14,90 @@ import java.util.*;
 public class Main {
 
     public static void main(String[] args) {
-        RoomRepository repository = new RoomRepository();
-        RoomAssigner assigner = new RoomAssigner(repository);
+        // 1. 인프라 및 저장소 초기화
+        RoomRepository roomRepository = new RoomRepository();
+        ReservationRepository reservationRepository = new ReservationRepository();
         AiPreferenceParser aiParser = new AiPreferenceParser();
-        RoomChangeService roomChangeService = new RoomChangeService(repository);
-        FloorStatusService floorStatusService = new FloorStatusService(repository);
+
+        // 2. 통합 서비스 계층 구성
+        ReservationService reservationService = new ReservationService(reservationRepository, roomRepository, aiParser);
+        FloorStatusService floorStatusService = new FloorStatusService(roomRepository);
 
         LocalDate today = LocalDate.of(2026, 9, 20);
 
         System.out.println("================================================================================");
-        System.out.println("🏨 [종합 실무 시뮬레이션] AI 다국어 파싱 -> 자동 배정 -> 룸 체인지 -> 191실 인디케이터");
+        System.out.println("🏨 [AI-Driven Hotel PMS Core Engine] 서비스 오케스트레이션 파이프라인 가동");
         System.out.println("   운영 기준 일자: " + today);
         System.out.println("   AI 엔진 설정: " + aiParser.getConfig());
         System.out.println("================================================================================\n");
 
-        // 1. 기준일 이전 체크인한 기존 투숙객(OCCUPIED) 20실 사전 세팅
-        simulateExistingCheckInsWithSchedule(repository, 20, today);
-        long preOccupied = repository.findAll().stream().filter(r -> r.isOccupiedOn(today)).count();
+        // 3. 기준일 이전 체크인한 기존 투숙객 20실 사전 세팅
+        simulateExistingCheckInsWithSchedule(roomRepository, 20, today);
+        long preOccupied = roomRepository.findAll().stream().filter(r -> r.isOccupiedOn(today)).count();
         System.out.printf("📌 [초기 상태] 기존 투숙 객실: %d실 / 배정 가능 공실: %d실%n%n",
                 preOccupied, 191 - preOccupied);
 
-        // 2. 다국어 요청 메모가 포함된 50개 신규 예약 생성
-        List<Reservation> rawReservations = generate50RealisticReservations(today);
-        System.out.printf("📝 50건의 비정형 예약 생성 완료 (한국어, 일본어, 영어, 무요청 혼합)%n");
-        System.out.println("   샘플 1: " + rawReservations.get(0).getRawRequestText());
-        System.out.println("   샘플 2: " + rawReservations.get(1).getRawRequestText());
-        System.out.println("   샘플 3: " + rawReservations.get(2).getRawRequestText());
+        // 4. 외부 OTA 유입 50개 예약 생성 및 장부 접수 (PENDING)
+        List<Reservation> incomingReservations = generate50RealisticReservations(today);
+        List<Reservation> acceptedReservations = reservationService.receiveReservations(incomingReservations);
+        System.out.printf("📝 [예약 접수 완료] %d건 인입 중 유효 예약 %d건 장부(PENDING) 적재 완료%n%n",
+                incomingReservations.size(), acceptedReservations.size());
+
+        // 5. ReservationService 통한 당일 일괄 AI 파싱 및 우선순위 자동 배정
+        System.out.println("⚡ [Gemini 2.5 Flash & BatchAssigner] 당일 일괄 배정 파이프라인 가동 (Single API Call)...");
+        long startTime = System.currentTimeMillis();
+        BatchAssignmentResult assignmentResult = reservationService.runDailyBatchAssignment(today);
+        long elapsed = System.currentTimeMillis() - startTime;
+        System.out.printf("✅ 당일 자동 배정 완료! (소요 시간: %d ms)%n", elapsed);
+        System.out.println(assignmentResult.toSummaryString());
         System.out.println();
 
-        // 3. 🚀 단 1회의 Gemini API 호출로 50건 일괄 정제
-        System.out.println("⚡ [Gemini 2.5 Flash] 50건 일괄 배치 분석 요청 전송 중 (Single API Call)...");
-        long startTime = System.currentTimeMillis();
-        Map<String, GuestPreference> parsedPreferences = aiParser.parseBatch(rawReservations);
-        long elapsed = System.currentTimeMillis() - startTime;
-        System.out.printf("✅ AI 일괄 정제 완료! 소요시간: %d ms (분석된 선호도: %d건)%n%n", elapsed, parsedPreferences.size());
-
-        // 4. AI가 정제해 준 선호도를 각 Reservation에 주입
-        List<Reservation> enrichedReservations = new ArrayList<>();
-        for (Reservation rsv : rawReservations) {
-            GuestPreference pref = parsedPreferences.getOrDefault(rsv.getReservationId(), GuestPreference.empty());
-            enrichedReservations.add(rsv.withPreference(pref));
+        // 6. 🎯 [고객 요청 메모 건 심층 결과] 실제 메모가 있던 건들만 필터링하여 처리 결과 출력
+        Map<String, Reservation> successMap = new HashMap<>();
+        for (Reservation r : assignmentResult.getSuccessfulAssignments()) {
+            successMap.put(r.getReservationId(), r);
         }
 
-        // 5. 정제된 50개 예약으로 일괄 배정 엔진(BatchAssigner) 가동
-        System.out.println("⚙️ [배치 배정 엔진] 우선순위 기반 자동 배정 가동...");
-        BatchAssigner batchAssigner = new BatchAssigner(assigner);
-        BatchAssignmentResult result = batchAssigner.assignAll(enrichedReservations);
-
-        // 50건 상세 배정 요약 표 출력
-        Map<String, Reservation> successMap = result.getSuccessfulAssignments().stream()
-                .collect(java.util.stream.Collectors.toMap(Reservation::getReservationId, r -> r));
-
+        System.out.println("========================================================================================================================");
+        System.out.println("🎯 [고객 요청 메모 건 처리 결과 (다국어 자연어 -> AI 분석 -> 최종 배정)]");
         System.out.println("========================================================================================================================");
         System.out.printf("%-13s | %-17s | %-4s | %-24s | %-26s | %s%n",
                 "예약ID", "객실타입", "박수", "고객 요청 메모(원문)", "AI 선호도 정제", "최종 배정 결과");
         System.out.println("------------------------------------------------------------------------------------------------------------------------");
 
-        for (Reservation r : enrichedReservations) {
+        for (Reservation r : acceptedReservations) {
             String memo = r.getRawRequestText();
-            if (memo == null || memo.isBlank()) memo = "(요청 없음)";
-            else if (memo.length() > 16) memo = memo.substring(0, 14) + "..";
+            // 요청 메모가 실제로 존재하는 건들만 선별 출력
+            if (memo != null && !memo.isBlank()) {
+                String memoPreview = (memo.length() > 16) ? memo.substring(0, 14) + ".." : memo;
+                Reservation matchedSuccess = successMap.get(r.getReservationId());
 
-            Reservation successRes = successMap.get(r.getReservationId());
-            String resultRoom = (successRes != null && successRes.isAssigned())
-                    ? successRes.getAssignedRoomNumber() + "호 확정"
-                    : "❌ 배정실패(만실)";
+                String assignResultText;
+                GuestPreference pref = (matchedSuccess != null) ? matchedSuccess.getPreference() : r.getPreference();
 
-            System.out.printf("%-13s | %-17s | %-3d박 | %-22s | %-24s | %s%n",
-                    r.getReservationId(),
-                    r.getBookedRoomType().name(),
-                    r.getStayNights(),
-                    memo,
-                    r.getPreference(),
-                    resultRoom
-            );
+                if (matchedSuccess != null && matchedSuccess.isAssigned()) {
+                    assignResultText = matchedSuccess.getAssignedRoomNumber() + "호 확정";
+                } else {
+                    assignResultText = "❌ 배정실패(만실)";
+                }
+
+                System.out.printf("%-13s | %-17s | %-3d박 | %-22s | %-24s | %s%n",
+                        r.getReservationId(),
+                        r.getBookedRoomType().name(),
+                        r.getStayNights(),
+                        memoPreview,
+                        pref,
+                        assignResultText
+                );
+            }
         }
         System.out.println("========================================================================================================================\n");
-        System.out.println(result.toSummaryString());
-        System.out.println();
 
-        // 5-1. ⚠️ 배정 실패(만실/타입 불일치 등) 건 별도 필터링 출력
-        List<Reservation> failedList = result.getFailedAssignments();
-
+        // 7. ⚠️ [배정 실패 건 상세 목록] 아래에 별도 격리 출력
+        List<Reservation> failedList = assignmentResult.getFailedAssignments();
         if (!failedList.isEmpty()) {
             System.out.println("================================================================================");
-            System.out.printf("⚠️ [배정 실패 알림] 총 %d건의 예약이 배정되지 못했습니다 (만실 또는 제약조건 초과)%n", failedList.size());
+            System.out.printf("⚠️ [배정 실패 알림] 총 %d건의 예약이 배정되지 못했습니다 (해당 타입 만실)%n", failedList.size());
             System.out.println("================================================================================");
             System.out.printf("%-13s | %-16s | %-4s | %-26s | %s%n",
                     "예약ID", "신청 객실타입", "박수", "AI 분석 선호도", "고객 요청 메모(원문)");
@@ -117,50 +117,49 @@ public class Main {
             }
             System.out.println("--------------------------------------------------------------------------------\n");
         } else {
-            System.out.println("🎉 축하합니다! 50건의 모든 예약이 100% 성공적으로 객실에 배정되었습니다.\n");
+            System.out.println("🎉 축하합니다! 모든 예약이 100% 성공적으로 객실에 배정되었습니다.\n");
         }
 
-        // 6. 🔄 프론트 데스크 수동 룸 체인지 시뮬레이션
-        System.out.println("--------------------------------------------------------------------------------");
-        System.out.println("🛎️ [프론트 데스크 실무] 수동 룸 체인지(Room Move) 시뮬레이션");
-        System.out.println("--------------------------------------------------------------------------------");
-        Reservation moveTarget = result.getSuccessfulAssignments().stream().findFirst().orElse(null);
+        // 8. 🛎️ 프론트 데스크 실무: 첫 번째 배정 고객 체크인(STAYING) 후 수동 룸 체인지(ROOM_CHANGED) 시뮬레이션
+        Reservation firstAssigned = assignmentResult.getSuccessfulAssignments().stream().findFirst().orElse(null);
+        if (firstAssigned != null) {
+            String resId = firstAssigned.getReservationId();
 
-        if (moveTarget != null) {
-            String originRoom = moveTarget.getAssignedRoomNumber();
-            StayPeriod movePeriod = new StayPeriod(moveTarget.getCheckInDate(), moveTarget.getStayNights());
+            // 키 수령 및 입실 처리 (ASSIGNED -> STAYING)
+            reservationService.processCheckIn(resId);
+            Reservation checkedInGuest = reservationService.getReservation(resId).orElseThrow();
+            System.out.printf("🛎️ [프론트 체크인] 고객 [%s] 키 발급 완료 -> 상태: %s (%s호)%n",
+                    checkedInGuest.getGuestName(), checkedInGuest.getStatus().getTitle(), checkedInGuest.getAssignedRoomNumber());
 
-            // 동일 타입의 다른 공실 탐색
-            Room emptySameTypeRoom = repository.findAll().stream()
-                    .filter(room -> room.getRoomType() == moveTarget.getBookedRoomType())
+            // 동일 타입 대체 공실 탐색 후 룸 무브 실행 (STAYING -> ROOM_CHANGED)
+            String originRoom = checkedInGuest.getAssignedRoomNumber();
+            StayPeriod movePeriod = new StayPeriod(checkedInGuest.getCheckInDate(), checkedInGuest.getStayNights());
+
+            Room emptySameTypeRoom = roomRepository.findAll().stream()
+                    .filter(room -> room.getRoomType() == checkedInGuest.getBookedRoomType())
                     .filter(room -> !room.getRoomNumber().equals(originRoom))
                     .filter(room -> room.isAvailable(movePeriod))
                     .findFirst()
                     .orElse(null);
 
             if (emptySameTypeRoom != null) {
-                System.out.printf("고객 [%s] 객실 이동 요청: %s호 -> %s호%n",
-                        moveTarget.getGuestName(), originRoom, emptySameTypeRoom.getRoomNumber());
-                RoomChangeResult changeResult = roomChangeService.changeRoom(moveTarget, emptySameTypeRoom.getRoomNumber(), true);
-                System.out.println(">> " + changeResult.message());
-            } else {
-                System.out.println(">> 동일 타입의 대체 공실이 없어 룸 체인지를 건너뜁니다.");
+                RoomChangeResult changeResult = reservationService.processRoomChange(resId, emptySameTypeRoom.getRoomNumber());
+                Reservation movedGuest = reservationService.getReservation(resId).orElseThrow();
+                System.out.printf("🔄 [수동 룸 체인지] 고객 [%s] 객실 이동 완료: %s -> %s호 | 상태: %s%n",
+                        movedGuest.getGuestName(), originRoom, movedGuest.getAssignedRoomNumber(), movedGuest.getStatus().name());
+                System.out.println("   >> 처리 결과: " + changeResult.message() + "\n");
             }
         }
-        System.out.println();
 
-        // 7. 📊 일자별 191실 전 객실 JSON 인디케이터 매트릭스 출력
+        // 9. 📊 191실 전 객실 룸 랙 Full JSON 매트릭스 출력
         System.out.println("================================================================================");
-        System.out.println("📊 [191실 전 객실 룸 랙 JSON 매트릭스 (Full Room Indicator JSON)]");
+        System.out.println("📊 [191실 전 객실 룸 랙 Full JSON 매트릭스]");
         System.out.println("================================================================================");
-
-        FloorMapResponseDto matrixReport = floorStatusService.getFloorMatrix(today, result.getSuccessfulAssignments());
-
-        // 순수 자바로 보기 좋은 들여쓰기(Indent) JSON 포맷팅 출력
-        System.out.println(formatToJson(matrixReport));
+        FloorMapResponseDto matrixReport = floorStatusService.getFloorMatrix(today, assignmentResult.getSuccessfulAssignments());
+        System.out.println(formatFloorMapToJson(matrixReport));
 
         System.out.println("\n================================================================================");
-        System.out.printf("🎉 [운영 요약] 총 %d실 | 점유 %d실 (재실+신규) | 공실 %d실 | 호텔 점유율 %.1f%%%n",
+        System.out.printf("🎉 [운영 통계 요약] 총 %d실 | 점유: %d실 (재실+신규배정) | 공실: %d실 | 당일 점유율: %.1f%%%n",
                 matrixReport.totalRooms(),
                 matrixReport.occupiedRooms(),
                 matrixReport.vacantRooms(),
@@ -168,10 +167,7 @@ public class Main {
         System.out.println("================================================================================");
     }
 
-    /**
-     * 외부 라이브러리 없이 FloorMapResponseDto를 보기 좋은 들여쓰기 JSON으로 포맷팅
-     */
-    private static String formatToJson(FloorMapResponseDto dto) {
+    private static String formatFloorMapToJson(FloorMapResponseDto dto) {
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
         sb.append(String.format("  \"targetDate\": \"%s\",\n", dto.targetDate()));
@@ -181,13 +177,13 @@ public class Main {
         sb.append(String.format("  \"occupancyRatePercent\": %.1f,\n", dto.occupancyRatePercent()));
         sb.append("  \"floorRooms\": {\n");
 
-        int floorIndex = 0;
-        int floorTotal = dto.floorRooms().size();
+        int floorCount = 0;
+        int totalFloors = dto.floorRooms().size();
 
         for (Map.Entry<Integer, List<RoomMatrixItemDto>> entry : dto.floorRooms().entrySet()) {
             int floor = entry.getKey();
             List<RoomMatrixItemDto> rooms = entry.getValue();
-            floorIndex++;
+            floorCount++;
 
             sb.append(String.format("    \"%d\": [\n", floor));
             for (int i = 0; i < rooms.size(); i++) {
@@ -202,7 +198,7 @@ public class Main {
                         (i < rooms.size() - 1) ? "," : ""
                 ));
             }
-            sb.append(String.format("    ]%s\n", (floorIndex < floorTotal) ? "," : ""));
+            sb.append(String.format("    ]%s\n", (floorCount < totalFloors) ? "," : ""));
         }
 
         sb.append("  }\n");
@@ -210,9 +206,6 @@ public class Main {
         return sb.toString();
     }
 
-    /**
-     * 기준일 이전 체크인하여 오늘(today)도 투숙 중인 기존 예약 20실을 날짜 스케줄과 함께 생성
-     */
     private static void simulateExistingCheckInsWithSchedule(RoomRepository repo, int count, LocalDate today) {
         List<Room> allRooms = repo.findAll();
         Random random = new Random(42);
@@ -221,7 +214,6 @@ public class Main {
         for (Room room : allRooms) {
             if (occupied >= count) break;
             if (random.nextBoolean()) {
-                // 기준일 전날(9/19) 체크인해서 3박(9/22 체크아웃) 투숙 중인 상태 시뮬레이션
                 StayPeriod inHousePeriod = new StayPeriod(today.minusDays(1), 3);
                 room.bookPeriod(inHousePeriod);
                 occupied++;
@@ -262,10 +254,9 @@ public class Main {
             String rsvId = String.format("RSV-BATCH-%03d", i);
             String guestName = "Guest_" + i;
             RoomType type = types[rand.nextInt(types.length)];
-            int nights = rand.nextInt(4) + 1; // 1~4박
+            int nights = rand.nextInt(4) + 1;
             String note = realisticNotes[i % realisticNotes.length];
 
-            // 당일 체크인 기준 예약 생성
             list.add(new Reservation(rsvId, guestName, type, today, nights, note, GuestPreference.empty()));
         }
 
