@@ -4,6 +4,7 @@ import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.service.dto.ReservationSearchCondition;
+import com.hotel.service.dto.RoomChangeRequest; // <-- 이 import문이 필수입니다.
 import com.hotel.service.dto.RoomChangeResult;
 import com.hotel.service.validator.ReservationValidator;
 
@@ -13,7 +14,6 @@ import java.util.*;
 public class ReservationService {
 
     private final ReservationRepository reservationRepository;
-    private final RoomRepository roomRepository;
     private final ReservationValidator validator;
     private final AiPreferenceParser aiParser;
     private final BatchAssigner batchAssigner;
@@ -22,8 +22,8 @@ public class ReservationService {
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser) {
+        Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.reservationRepository = Objects.requireNonNull(reservationRepository, "reservationRepository는 필수입니다.");
-        this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.validator = new ReservationValidator();
         this.aiParser = (aiParser != null) ? aiParser : new AiPreferenceParser();
         this.batchAssigner = new BatchAssigner(new RoomAssigner(roomRepository));
@@ -95,20 +95,30 @@ public class ReservationService {
 
     /**
      * [4. 수동 룸 체인지 (Room Move)]
-     * Room 스케줄 교체 트랜잭션 수행 후 예약 상태를 ROOM_CHANGED 로 갱신
+     * 잔여 기간 스케줄 분할 이전 및 룸 랙 상태 전이 후 장부 동기화
      */
-    public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
-        Reservation reservation = findReservationOrThrow(reservationId);
+    public RoomChangeResult processRoomChange(RoomChangeRequest request) {
+        Objects.requireNonNull(request, "RoomChangeRequest 요청은 필수입니다.");
+        Reservation reservation = findReservationOrThrow(request.reservationId());
 
-        RoomChangeResult result = roomChangeService.changeRoom(reservation, targetRoomNumber, true);
+        RoomChangeResult result = roomChangeService.changeRoom(reservation, request);
 
         if (result.success()) {
-            // Room.bookPeriod() 및 Reservation.changeRoom()이 수행되었으므로 상태가 ROOM_CHANGED로 변경됨
-            reservation.changeRoom(targetRoomNumber);
+            // roomChangeService 내부에서 예약 호실 및 상태(ROOM_CHANGED)가 이미 전이되었으므로 저장소에만 반영
             reservationRepository.save(reservation);
         }
 
         return result;
+    }
+
+    /**
+     * 기존 2개 파라미터 호출 호환 편의 메서드 (당일 기준 잔여 기간 이전)
+     */
+    public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+        LocalDate moveDate = (reservation.getCheckInDate() != null) ? reservation.getCheckInDate() : LocalDate.now();
+        RoomChangeRequest request = new RoomChangeRequest(reservationId, targetRoomNumber, moveDate, "현장 프론트 요청");
+        return processRoomChange(request);
     }
 
     /**

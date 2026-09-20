@@ -1,11 +1,12 @@
 package com.hotel.service;
 
-import com.hotel.domain.Reservation;
-import com.hotel.domain.Room;
-import com.hotel.domain.StayPeriod;
+import com.hotel.domain.*;
 import com.hotel.repository.RoomRepository;
+import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -17,12 +18,26 @@ public class RoomChangeService {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
     }
 
-    public RoomChangeResult changeRoom(Reservation reservation, String targetRoomNumber, boolean releaseOldRoomSchedule) {
+    /**
+     * 프론트 데스크 실무 룸 체인지 실행
+     */
+    public RoomChangeResult changeRoom(Reservation reservation, RoomChangeRequest request) {
         if (reservation == null) {
             return RoomChangeResult.failure(null, "예약 정보가 유효하지 않습니다.");
         }
+        if (request == null) {
+            return RoomChangeResult.failure(reservation.getReservationId(), "요청 정보가 유효하지 않습니다.");
+        }
+
+        String targetRoomNumber = request.targetRoomNumber();
         if (targetRoomNumber == null || targetRoomNumber.isBlank()) {
             return RoomChangeResult.failure(reservation.getReservationId(), "이동할 대상 객실 번호가 지정되지 않았습니다.");
+        }
+
+        // 1. 투숙 상태 검증 (인하우스 상태만 가능)
+        if (!reservation.getStatus().isInHouse()) {
+            return RoomChangeResult.failure(reservation.getReservationId(),
+                    "투숙 중인 고객만 룸 체인지가 가능합니다. (현재 상태: " + reservation.getStatus() + ")");
         }
 
         String originRoomNumber = reservation.getAssignedRoomNumber();
@@ -30,43 +45,74 @@ public class RoomChangeService {
             return RoomChangeResult.failure(reservation.getReservationId(), "현재 배정된 객실과 동일한 객실로 이동할 수 없습니다.");
         }
 
-        // 1. 이동 대상 객실 존재 여부 확인 (Optional 방어)
+        // 2. 이동 대상 객실 존재 여부 확인
         Optional<Room> targetRoomOpt = roomRepository.findByRoomNumber(targetRoomNumber.trim());
         if (targetRoomOpt.isEmpty()) {
-            return RoomChangeResult.failure(reservation.getReservationId(), "해당 객실(" + targetRoomNumber + ")이 호텔 도면에 존재하지 않습니다.");
+            return RoomChangeResult.failure(reservation.getReservationId(), "해당 객실(" + targetRoomNumber + ")이 도면에 존재하지 않습니다.");
         }
-        Room newRoom = targetRoomOpt.get();
+        Room targetRoom = targetRoomOpt.get();
 
-        // 2. 객실 타입 일치 검증 (동일 타입 이동 기본 원칙)
-        if (newRoom.getRoomType() != reservation.getBookedRoomType()) {
+        // 3. 신규 객실 하우스키핑 상태 방어 (공실 VACANT 상태만 입실 가능)
+        if (!targetRoom.getStatus().isAssignable()) {
+            return RoomChangeResult.failure(reservation.getReservationId(),
+                    "이동 대상 객실(" + targetRoomNumber + "호)은 입실 가능한 공실(VACANT)이 아닙니다. (현재 상태: "
+                            + targetRoom.getStatus().getTitle() + ")");
+        }
+
+        // 4. 객실 타입 일치 검증
+        if (targetRoom.getRoomType() != reservation.getBookedRoomType()) {
             return RoomChangeResult.failure(reservation.getReservationId(),
                     String.format("객실 타입 불일치: 예약 타입은 %s이나 대상 객실은 %s입니다.",
-                            reservation.getBookedRoomType(), newRoom.getRoomType()));
+                            reservation.getBookedRoomType(), targetRoom.getRoomType()));
         }
 
-        // 3. 신규 객실의 날짜 스케줄 충돌 방어
-        StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
-        if (newRoom.hasScheduleConflict(stayPeriod)) {
+        // 5. 남은 숙박 기간(Remaining StayPeriod) 분할 계산
+        LocalDate moveDate = request.moveDate();
+        LocalDate checkOutDate = reservation.getCheckOutDate();
+
+        if (!moveDate.isBefore(checkOutDate)) {
+            return RoomChangeResult.failure(reservation.getReservationId(), "이동 일자는 체크아웃 날짜 이전이어야 합니다.");
+        }
+
+        int remainingNights = (int) ChronoUnit.DAYS.between(moveDate, checkOutDate);
+        if (remainingNights <= 0) {
+            return RoomChangeResult.failure(reservation.getReservationId(), "남은 투숙 박수가 없습니다.");
+        }
+
+        StayPeriod remainingPeriod = new StayPeriod(moveDate, remainingNights);
+
+        // 6. 신규 객실의 남은 기간 스케줄 가용성 확인
+        if (!targetRoom.isAvailable(remainingPeriod)) {
             return RoomChangeResult.failure(reservation.getReservationId(),
-                    String.format("대상 객실(%s)은 해당 투숙 기간(%s)에 이미 다른 예약이 확정되어 있습니다.",
-                            targetRoomNumber, stayPeriod));
+                    String.format("대상 객실(%s)은 해당 잔여 투숙 기간(%s)에 이미 다른 예약이 존재합니다.",
+                            targetRoomNumber, remainingPeriod));
         }
 
-        // 4. 기존 객실 스케줄 반납 처리 (Optional 안전 처리)
-        if (originRoomNumber != null && releaseOldRoomSchedule) {
-            roomRepository.findByRoomNumber(originRoomNumber.trim())
-                    .ifPresent(oldRoom -> oldRoom.cancelPeriod(stayPeriod));
+        // ==========================================
+        // 7. 스케줄 이전 및 상태 전이 실행
+        // ==========================================
+
+        // 기존 방: 잔여 기간 스케줄 반납(이동일자 이후 축소) + 아웃 청소 대기(OUT) 상태로 변경
+        if (originRoomNumber != null) {
+            roomRepository.findByRoomNumber(originRoomNumber.trim()).ifPresent(originRoom -> {
+                originRoom.truncatePeriodFrom(moveDate); // <-- cancelPeriod 대신 truncate 호출
+                originRoom.setStatus(RoomStatus.OUT);
+            });
         }
 
-        // 5. 신규 객실 스케줄 등록 및 예약 정보 갱신
-        newRoom.bookPeriod(stayPeriod);
-        reservation.assignRoom(newRoom.getRoomNumber());
+        // 신규 방: 잔여 기간 스케줄 등록 + 재실(OCCUPIED) 상태로 변경
+        targetRoom.bookPeriod(remainingPeriod);
+        targetRoom.setStatus(RoomStatus.OCCUPIED);
+
+        // 예약 객체 상태 전이 (ROOM_CHANGED 및 새 호실 갱신)
+        reservation.changeRoom(targetRoom.getRoomNumber());
 
         return RoomChangeResult.success(
                 reservation.getReservationId(),
                 originRoomNumber,
-                newRoom.getRoomNumber(),
-                String.format("[%s -> %s] 수동 재배정 완료 (%s)", originRoomNumber, newRoom.getRoomNumber(), stayPeriod)
+                targetRoom.getRoomNumber(),
+                moveDate,
+                remainingNights
         );
     }
 }
