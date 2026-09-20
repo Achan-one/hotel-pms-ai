@@ -120,4 +120,42 @@ class RoomChangeServiceTest {
         assertFalse(result.success());
         assertTrue(result.message().contains("객실 타입 불일치"));
     }
+
+    @Test
+    @DisplayName("[0박 당일 룸 무브] 체크인 당일 입실 직후 방 변경 시 기존 방은 완전히 비워지고 새 방에 전체 박수가 등록된다")
+    void changeRoom_SameDayCheckIn_ZeroNightsElapsed() {
+        List<Room> allRooms = roomRepository.findAll();
+        Room originRoom = allRooms.get(0);
+        RoomType targetType = originRoom.getRoomType();
+
+        Room targetRoom = allRooms.stream()
+                .filter(r -> r.getRoomType() == targetType && !r.getRoomNumber().equals(originRoom.getRoomNumber()))
+                .findFirst()
+                .orElseThrow();
+
+        Reservation res = new Reservation("RSV-SAME-DAY", "Guest", targetType,
+                checkIn, 2, "방 냄새 민원", GuestPreference.empty());
+        res.assignRoom(originRoom.getRoomNumber());
+        res.checkIn();
+
+        originRoom.bookPeriod(new StayPeriod(checkIn, 2));
+        originRoom.setStatus(RoomStatus.OCCUPIED);
+        targetRoom.setStatus(RoomStatus.VACANT);
+
+        // 체크인 당일(checkIn) 바로 룸 무브
+        RoomChangeRequest request = new RoomChangeRequest("RSV-SAME-DAY", targetRoom.getRoomNumber(), checkIn, "냄새");
+        RoomChangeResult result = roomChangeService.changeRoom(res, request);
+
+        assertTrue(result.success());
+        assertEquals(2, result.remainingNights());
+        assertEquals(RoomStatus.OUT, originRoom.getStatus());
+        assertEquals(RoomStatus.OCCUPIED, targetRoom.getStatus());
+
+        // 기존 방은 어제 잔여 투숙도 없으므로 스케줄이 완전히 비워져야 함
+        assertTrue(originRoom.getBookedPeriods().isEmpty());
+        assertFalse(originRoom.isAssigned());
+
+        // 신규 방은 2박 전체가 점유되어야 함
+        assertFalse(targetRoom.isAvailable(new StayPeriod(checkIn, 2)));
+    }
 }

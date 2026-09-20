@@ -185,4 +185,55 @@ class ReservationServiceTest {
         assertEquals("RSV-SEARCH-01", results.get(0).getReservationId());
         assertEquals("Tanaka Kenji", results.get(0).getGuestName());
     }
+    @Test
+    @DisplayName("[배정 취소] 배정 완료된 예약의 배정을 취소하면 객실 스케줄이 즉시 반납되어 재배정 가능해진다")
+    void cancelRoomAssignment_Success() {
+        Reservation r1 = new Reservation("RSV-CANCEL-ASSIGN", "Yamada", RoomType.MODERATE_DOUBLE, today, 2, null, null);
+        reservationService.receiveReservations(List.of(r1));
+        reservationService.runDailyBatchAssignment(today);
+
+        Reservation assigned = reservationRepository.findById("RSV-CANCEL-ASSIGN").orElseThrow();
+        String roomNumber = assigned.getAssignedRoomNumber();
+        Room room = roomRepository.findByRoomNumber(roomNumber).orElseThrow();
+
+        // 배정 직후: 점유 상태
+        StayPeriod stayPeriod = new StayPeriod(today, 2);
+        assertFalse(room.isAvailable(stayPeriod));
+
+        // When: 배정 취소 실행
+        reservationService.cancelRoomAssignment("RSV-CANCEL-ASSIGN");
+
+        // Then: 예약 상태는 PENDING으로 환원되고 방 번호는 null
+        Reservation unassigned = reservationRepository.findById("RSV-CANCEL-ASSIGN").orElseThrow();
+        assertEquals(ReservationStatus.PENDING, unassigned.getStatus());
+        assertNull(unassigned.getAssignedRoomNumber());
+
+        // 객실 스케줄이 회수되어 해당 기간에 다시 가용(available)해져야 함
+        assertTrue(room.isAvailable(stayPeriod));
+    }
+
+    @Test
+    @DisplayName("[예약 취소] 배정 상태에서 고객이 예약을 취소하면 객실 스케줄이 회수되고 CANCELLED 상태로 전환된다")
+    void cancelReservation_Success() {
+        Reservation r1 = new Reservation("RSV-CANCEL-RES", "Suzuki", RoomType.SUPERIOR_TWIN, today, 3, null, null);
+        reservationService.receiveReservations(List.of(r1));
+        reservationService.runDailyBatchAssignment(today);
+
+        Reservation assigned = reservationRepository.findById("RSV-CANCEL-RES").orElseThrow();
+        String roomNumber = assigned.getAssignedRoomNumber();
+        Room room = roomRepository.findByRoomNumber(roomNumber).orElseThrow();
+
+        StayPeriod stayPeriod = new StayPeriod(today, 3);
+        assertFalse(room.isAvailable(stayPeriod));
+
+        // When: 예약 취소 실행
+        reservationService.cancelReservation("RSV-CANCEL-RES");
+
+        // Then: 예약 상태는 CANCELLED
+        Reservation cancelled = reservationRepository.findById("RSV-CANCEL-RES").orElseThrow();
+        assertEquals(ReservationStatus.CANCELLED, cancelled.getStatus());
+
+        // 객실 스케줄이 즉시 반납되어야 함
+        assertTrue(room.isAvailable(stayPeriod));
+    }
 }

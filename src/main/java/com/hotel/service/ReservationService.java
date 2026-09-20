@@ -163,4 +163,57 @@ public class ReservationService {
         return reservationRepository.findById(reservationId.trim())
                 .orElseThrow(() -> new NoSuchElementException("예약 원장에서 해당 예약을 찾을 수 없습니다: " + reservationId));
     }
+
+    /**
+     * [배정 취소 (Unassign)]
+     * 이미 배정된 객실의 투숙 스케줄을 회수하고 예약을 다시 PENDING(미배정) 상태로 전환
+     */
+    public void cancelRoomAssignment(String reservationId) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+
+        if (!reservation.isAssigned()) {
+            return; // 이미 미배정인 경우 무시
+        }
+
+        if (reservation.getStatus().isInHouse()) {
+            throw new IllegalStateException("이미 입실(체크인)한 고객의 객실 배정은 직접 취소할 수 없습니다. (룸 체인지를 이용하세요)");
+        }
+
+        String roomNumber = reservation.getAssignedRoomNumber();
+        StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+
+        // 1. 객실 스케줄 회수 및 락 해제
+        if (roomNumber != null) {
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+                room.cancelPeriod(stayPeriod);
+            });
+        }
+
+        // 2. 예약 도메인 상태 전이 (ASSIGNED -> PENDING)
+        reservation.cancelAssignment();
+        reservationRepository.save(reservation);
+    }
+
+    /**
+     * [예약 취소 (Cancel)]
+     * 배정된 객실이 있다면 스케줄을 즉시 회수하고 예약을 CANCELLED 상태로 전환
+     */
+    public void cancelReservation(String reservationId) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+
+        if (reservation.getStatus().isInHouse()) {
+            throw new IllegalStateException("현재 투숙 중인 예약은 취소할 수 없습니다. (체크아웃을 진행하세요)");
+        }
+
+        String roomNumber = reservation.getAssignedRoomNumber();
+        if (roomNumber != null) {
+            StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+                room.cancelPeriod(stayPeriod);
+            });
+        }
+
+        reservation.cancelReservation();
+        reservationRepository.save(reservation);
+    }
 }

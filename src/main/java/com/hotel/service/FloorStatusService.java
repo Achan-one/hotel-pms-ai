@@ -22,7 +22,7 @@ public class FloorStatusService {
     public FloorMapResponseDto getFloorMatrix(LocalDate targetDate, List<Reservation> activeReservations) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
 
-        // 방 번호 기준으로 해당 날짜에 머무는 예약 매핑
+        // 방 번호 기준으로 해당 날짜에 머무는 유효 예약 매핑 (체크아웃/취소 제외)
         Map<String, Reservation> roomToResMap = new HashMap<>();
         if (activeReservations != null) {
             for (Reservation res : activeReservations) {
@@ -55,16 +55,20 @@ public class FloorStatusService {
             String stayPeriodStr = null;
 
             if (matchedRes != null) {
-                // 당일 활성 예약이 배정된 경우
+                // 당일 유효 활성 예약이 있는 경우: 인하우스 투숙 중이면 OCCUPIED, 도착 전이면 ASSIGNED
                 status = matchedRes.getStatus().isInHouse() ? RoomStatus.OCCUPIED : RoomStatus.ASSIGNED;
                 rsvId = matchedRes.getReservationId();
                 guestName = matchedRes.getGuestName();
                 stayPeriodStr = String.format("%s ~ %s", matchedRes.getCheckInDate(), matchedRes.getCheckOutDate());
+            } else if (room.getStatus() != RoomStatus.VACANT) {
+                // 당일 유효 예약이 없는데 방 상태가 OUT, CLEANING, BREAK, BLOCKED 등 운영 상태인 경우 해당 물리 상태 우선
+                status = room.getStatus();
             } else if (room.isOccupiedOn(date)) {
+                // 사전 재실 스케줄이나 기타 투숙 스케줄이 존재하는 경우
                 status = RoomStatus.OCCUPIED;
             } else {
-                // 예약/스케줄이 없는 방은 실물 룸 랙 상태(OUT, CLEANING, BREAK, VACANT 등)를 온전히 반영
-                status = room.getStatus();
+                // 그 외에는 청소 완료된 공실
+                status = RoomStatus.VACANT;
             }
 
             dtoList.add(new RoomMatrixItemDto(
