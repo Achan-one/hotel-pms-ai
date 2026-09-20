@@ -1,4 +1,4 @@
-# 🏨 Hotel PMS Core & Room Auto-Assignment Engine
+# Hotel PMS Core & Room Auto-Assignment Engine
 
 실제 비즈니스/시티 호텔의 층별 건축 도면 규격(191실)과 글로벌 PMS(Opera 표준) 도메인 라이프사이클을 정밀하게 모델링한 Java 21 기반 호텔 자산 관리 시스템 코어 엔진입니다[cite: 5].
 
