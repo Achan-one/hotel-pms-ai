@@ -149,7 +149,7 @@ GEMINI_TEMPERATURE=0.1
 GEMINI_THINKING_BUDGET=0
 ```
 
-### 단위 테스트 실행 (39개 이상 테스트 전수 통과)
+### 단위 테스트 실행
 ```bash
 ./gradlew test
 ```
