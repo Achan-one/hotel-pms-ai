@@ -123,6 +123,20 @@ public class ReservationRepository {
         if (condition.checkInDate() != null) {
             stream = stream.filter(r -> condition.checkInDate().equals(r.getCheckInDate()));
         }
+        // 3-1. 체크인 일자 일치 필터
+        if (condition.checkInDate() != null) {
+            stream = stream.filter(r -> condition.checkInDate().equals(r.getCheckInDate()));
+        }
+
+        // 3-2. 특정 날짜 체류 중(In-House Stay) 필터: checkIn <= stayingDate < checkOut
+        if (condition.stayingDate() != null) {
+            LocalDate target = condition.stayingDate();
+            stream = stream.filter(r -> {
+                if (r.getCheckInDate() == null) return false;
+                LocalDate checkOut = r.getCheckOutDate();
+                return !target.isBefore(r.getCheckInDate()) && target.isBefore(checkOut);
+            });
+        }
 
         // 4. 투숙 박수 필터
         if (condition.stayNights() != null && condition.stayNights() > 0) {

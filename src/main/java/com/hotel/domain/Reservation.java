@@ -24,6 +24,7 @@ public class Reservation {
 
     // 3. 동적 상태 필드
     private String assignedRoomNumber;
+    private String previousRoomNumber;      // [수정 1] 룸 체인지 이전 호실 이력 추적 필드
     private ReservationStatus status;
 
     // ==========================================
@@ -64,6 +65,7 @@ public class Reservation {
         this.lateCheckOutTime = null;
 
         this.assignedRoomNumber = null;
+        this.previousRoomNumber = null;
         this.status = ReservationStatus.PENDING;
     }
 
@@ -139,10 +141,14 @@ public class Reservation {
         checkIn();
     }
 
+    /**
+     * [수정 2] 룸 체인지 실행 시 이전 호실 번호를 previousRoomNumber에 보존
+     */
     public void changeRoom(String newRoomNumber) {
         if (newRoomNumber == null || newRoomNumber.isBlank()) {
             throw new IllegalArgumentException("이동할 신규 객실 번호가 올바르지 않습니다.");
         }
+        this.previousRoomNumber = this.assignedRoomNumber;
         this.assignedRoomNumber = newRoomNumber.trim();
         this.status = ReservationStatus.ROOM_CHANGED;
     }
@@ -193,6 +199,7 @@ public class Reservation {
         );
         cloned.status = this.status;
         cloned.assignedRoomNumber = this.assignedRoomNumber;
+        cloned.previousRoomNumber = this.previousRoomNumber; // [수정 3-1] 복제 시 이전 방 번호 보존
         cloned.lateCheckOutTime = this.lateCheckOutTime;
         return cloned;
     }
@@ -216,6 +223,7 @@ public class Reservation {
     public LocalTime getEstimatedArrivalTime() { return estimatedArrivalTime; }
     public LocalTime getLateCheckOutTime() { return lateCheckOutTime; }
     public String getAssignedRoomNumber() { return assignedRoomNumber; }
+    public String getPreviousRoomNumber() { return previousRoomNumber; } // [수정 3-2] Getter 추가
     public ReservationStatus getStatus() { return status; }
 
     @Override
@@ -233,7 +241,7 @@ public class Reservation {
 
     @Override
     public String toString() {
-        return String.format("[%s | %s | %s | %s~%s (%d박) | 채널:%s | 조식:%s | 상태:%s | 배정:%s]",
+        return String.format("[%s | %s | %s | %s~%s (%d박) | 채널:%s | 조식:%s | 상태:%s | 배정:%s%s]",
                 reservationId,
                 guestName,
                 bookedRoomType.getDescription(),
@@ -243,7 +251,8 @@ public class Reservation {
                 channelInfo.channelType().getDescription(),
                 breakfastOption.isIncluded() ? (breakfastOption.getDailyBreakfastCount() + "인") : "불포함",
                 status.getTitle(),
-                isAssigned() ? (assignedRoomNumber + "호") : "미배정"
+                isAssigned() ? (assignedRoomNumber + "호") : "미배정",
+                (previousRoomNumber != null) ? (" (이전: " + previousRoomNumber + "호)") : ""
         );
     }
 }

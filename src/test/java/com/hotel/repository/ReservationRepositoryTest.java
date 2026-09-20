@@ -118,4 +118,14 @@ class ReservationRepositoryTest {
         assertEquals(ReservationStatus.CHECKED_OUT, res.getStatus());
         assertFalse(res.getStatus().isInHouse());
     }
+    @Test
+    @DisplayName("[재실 검색] stayingDate 기준으로 해당 날짜에 숙박 중인 연박 고객들을 정확히 조회해야 한다")
+    void search_ByStayingDate_Success() {
+        // 9/20에 체크인해서 2박 머무는 RSV-001은 9/21에도 투숙 중이어야 함
+        ReservationSearchCondition condition = ReservationSearchCondition.byStayingDate(sep21);
+        List<Reservation> results = repository.search(condition);
+
+        assertTrue(results.stream().anyMatch(r -> r.getReservationId().equals("RSV-001")));
+        assertTrue(results.stream().anyMatch(r -> r.getReservationId().equals("RSV-002"))); // 3박 예약
+    }
 }
