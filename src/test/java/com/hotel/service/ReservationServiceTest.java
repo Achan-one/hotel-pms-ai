@@ -82,7 +82,7 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("[3. 체크인 처리] 배정 확정된 예약은 고객 키 수령 시 STAYING(숙박중)으로 전환되어야 한다")
+    @DisplayName("[3. 체크인 처리] 배정 확정된 예약은 고객 키 수령 시 CHECKED_IN(투숙중)으로 전환되어야 한다")
     void processCheckIn_Success() {
         Reservation r1 = new Reservation("RSV-CHECKIN-01", "Tanaka", RoomType.MODERATE_DOUBLE, today, 2, null, null);
         reservationService.receiveReservations(List.of(r1));
@@ -91,7 +91,8 @@ class ReservationServiceTest {
         reservationService.processCheckIn("RSV-CHECKIN-01");
 
         Reservation inHouseGuest = reservationRepository.findById("RSV-CHECKIN-01").orElseThrow();
-        assertEquals(ReservationStatus.STAYING, inHouseGuest.getStatus());
+        // 실무 표준 상태: CHECKED_IN (키 수령 및 인하우스 투숙)
+        assertEquals(ReservationStatus.CHECKED_IN, inHouseGuest.getStatus());
         assertTrue(inHouseGuest.getStatus().isInHouse());
     }
 
@@ -118,9 +119,11 @@ class ReservationServiceTest {
         String originRoom = beforeMove.getAssignedRoomNumber();
 
         StayPeriod period = new StayPeriod(today, 2);
+        // 이동 대상: 정비 완료 공실(VACANT) + 동일 타입 + 가용 스케줄
         Room targetRoom = roomRepository.findAll().stream()
                 .filter(room -> room.getRoomType() == RoomType.SUPERIOR_TWIN)
                 .filter(room -> !room.getRoomNumber().equals(originRoom))
+                .filter(room -> room.getStatus().isAssignable())
                 .filter(room -> room.isAvailable(period))
                 .findFirst()
                 .orElseThrow();
@@ -164,9 +167,9 @@ class ReservationServiceTest {
         reservationService.runDailyBatchAssignment(today);
         reservationService.processCheckIn("RSV-SEARCH-01");
 
-        // 원본 순서: (reservationId, guestName, checkInDate, stayNights, roomType, status, assignedRoomNumber)
+        // 검색 조건: 실무 표준 입실 상태인 CHECKED_IN 필터링
         ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, today, null, null, ReservationStatus.STAYING, null
+                null, null, today, null, null, ReservationStatus.CHECKED_IN, null
         );
 
         List<Reservation> results = reservationService.searchReservations(condition);

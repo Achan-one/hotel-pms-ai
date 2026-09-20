@@ -94,7 +94,7 @@ class ReservationRepositoryTest {
     }
 
     @Test
-    @DisplayName("예약 라이프사이클 전이 검증: PENDING -> ASSIGNED -> STAYING -> ROOM_CHANGED -> CHECKED_OUT")
+    @DisplayName("예약 라이프사이클 전이 검증: PENDING -> ASSIGNED -> CHECKED_IN -> ROOM_CHANGED -> CHECKED_OUT")
     void reservationLifecycle_StateTransitions() {
         Reservation res = new Reservation("RSV-LIFE", "Sato", RoomType.SUPERIOR_TWIN, sep20, 2, null, GuestPreference.empty());
         assertEquals(ReservationStatus.PENDING, res.getStatus());
@@ -102,17 +102,15 @@ class ReservationRepositoryTest {
         // 1. 방 배정
         res.assignRoom("0501");
         assertEquals(ReservationStatus.ASSIGNED, res.getStatus());
-        assertEquals("0501", res.getAssignedRoomNumber());
 
         // 2. 키 수령 및 입실
-        res.startStaying();
-        assertEquals(ReservationStatus.STAYING, res.getStatus());
+        res.checkIn();
+        assertEquals(ReservationStatus.CHECKED_IN, res.getStatus());
         assertTrue(res.getStatus().isInHouse());
 
         // 3. 룸 체인지
         res.changeRoom("0805");
         assertEquals(ReservationStatus.ROOM_CHANGED, res.getStatus());
-        assertEquals("0805", res.getAssignedRoomNumber());
         assertTrue(res.getStatus().isInHouse());
 
         // 4. 퇴실

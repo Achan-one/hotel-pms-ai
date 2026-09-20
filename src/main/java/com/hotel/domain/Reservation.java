@@ -106,22 +106,37 @@ public class Reservation {
         this.status = ReservationStatus.PENDING;
     }
 
-    public void markReadyForCheckIn() {
+    /**
+     * 오늘 도착 예정(DUE_IN)으로 마킹
+     */
+    public void markDueIn() {
         if (this.assignedRoomNumber == null) {
-            throw new IllegalStateException("객실이 배정되지 않은 상태에서는 체크인 전 단계로 변경할 수 없습니다.");
+            throw new IllegalStateException("객실이 배정되지 않은 상태에서는 도착 예정 단계로 변경할 수 없습니다.");
+        }
+        this.status = ReservationStatus.DUE_IN;
+    }
+
+    // 기존 호출 호환용
+    public void markReadyForCheckIn() {
+        markDueIn();
+    }
+
+    /**
+     * 실제 키 발급 및 체크인 입실 처리 (DUE_IN / ASSIGNED -> CHECKED_IN)
+     */
+    public void checkIn() {
+        if (this.assignedRoomNumber == null) {
+            throw new IllegalStateException("객실이 배정되지 않은 예약은 체크인(입실)할 수 없습니다.");
+        }
+        if (this.breakfastOption.isIncluded() && !this.breakfastOption.isTicketsIssued()) {
+            this.breakfastOption.issueTickets();
         }
         this.status = ReservationStatus.CHECKED_IN;
     }
 
+    // 기존 startStaying() 호출 호환용
     public void startStaying() {
-        if (this.assignedRoomNumber == null) {
-            throw new IllegalStateException("객실이 배정되지 않은 예약은 입실(STAYING)할 수 없습니다.");
-        }
-        // 체크인 시 조식이 포함된 예약이면 식권 자동 발급
-        if (this.breakfastOption.isIncluded() && !this.breakfastOption.isTicketsIssued()) {
-            this.breakfastOption.issueTickets();
-        }
-        this.status = ReservationStatus.STAYING;
+        checkIn();
     }
 
     public void changeRoom(String newRoomNumber) {
@@ -134,7 +149,7 @@ public class Reservation {
 
     public void checkOut() {
         if (!this.status.isInHouse()) {
-            throw new IllegalStateException("현재 숙박 중(STAYING 또는 ROOM_CHANGED)인 고객만 체크아웃할 수 있습니다.");
+            throw new IllegalStateException("현재 숙박 중(CHECKED_IN 또는 ROOM_CHANGED)인 고객만 체크아웃할 수 있습니다.");
         }
 
         long balance = this.paymentLedger.getBalance();

@@ -80,7 +80,7 @@ public class ReservationService {
 
     /**
      * [3. 프론트 데스크 키 발급 및 체크인]
-     * ASSIGNED -> STAYING 상태 전이
+     * ASSIGNED / DUE_IN -> CHECKED_IN 상태 전이
      */
     public void processCheckIn(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
@@ -89,7 +89,7 @@ public class ReservationService {
             throw new IllegalStateException("객실 배정이 완료되지 않은 예약은 체크인할 수 없습니다: " + reservationId);
         }
 
-        reservation.startStaying();
+        reservation.checkIn();
         reservationRepository.save(reservation);
     }
 
