@@ -20,6 +20,9 @@ public class RoomChangeService {
 
     /**
      * 프론트 데스크 실무 룸 체인지 실행
+     * - 당일 체크인 직후 0박 이동 지원
+     * - 연박 중 잔여 박수 분할 이동 지원
+     * - 체크아웃 당일 레이트 아웃 룸 무브 지원
      */
     public RoomChangeResult changeRoom(Reservation reservation, RoomChangeRequest request) {
         if (reservation == null) {
@@ -70,19 +73,16 @@ public class RoomChangeService {
         LocalDate moveDate = request.moveDate();
         LocalDate checkOutDate = reservation.getCheckOutDate();
 
-        if (!moveDate.isBefore(checkOutDate)) {
-            return RoomChangeResult.failure(reservation.getReservationId(), "이동 일자는 체크아웃 날짜 이전이어야 합니다.");
+        // 이동일자가 체크아웃 이후인 경우는 차단
+        if (moveDate.isAfter(checkOutDate)) {
+            return RoomChangeResult.failure(reservation.getReservationId(), "이동 일자는 체크아웃 날짜보다 이후일 수 없습니다.");
         }
 
         int remainingNights = (int) ChronoUnit.DAYS.between(moveDate, checkOutDate);
-        if (remainingNights <= 0) {
-            return RoomChangeResult.failure(reservation.getReservationId(), "남은 투숙 박수가 없습니다.");
-        }
+        StayPeriod remainingPeriod = (remainingNights > 0) ? new StayPeriod(moveDate, remainingNights) : null;
 
-        StayPeriod remainingPeriod = new StayPeriod(moveDate, remainingNights);
-
-        // 6. 신규 객실의 남은 기간 스케줄 가용성 확인
-        if (!targetRoom.isAvailable(remainingPeriod)) {
+        // 6. 신규 객실의 남은 기간 스케줄 가용성 확인 (잔여 박수가 있을 경우에만)
+        if (remainingPeriod != null && !targetRoom.isAvailable(remainingPeriod)) {
             return RoomChangeResult.failure(reservation.getReservationId(),
                     String.format("대상 객실(%s)은 해당 잔여 투숙 기간(%s)에 이미 다른 예약이 존재합니다.",
                             targetRoomNumber, remainingPeriod));
@@ -92,16 +92,18 @@ public class RoomChangeService {
         // 7. 스케줄 이전 및 상태 전이 실행
         // ==========================================
 
-        // 기존 방: 잔여 기간 스케줄 반납(이동일자 이후 축소) + 아웃 청소 대기(OUT) 상태로 변경
+        // 기존 방: moveDate 이후 잔여 스케줄 단축 반납 + 청소 대기(OUT) 상태로 변경
         if (originRoomNumber != null) {
             roomRepository.findByRoomNumber(originRoomNumber.trim()).ifPresent(originRoom -> {
-                originRoom.truncatePeriodFrom(moveDate); // <-- cancelPeriod 대신 truncate 호출
+                originRoom.truncatePeriodFrom(moveDate);
                 originRoom.setStatus(RoomStatus.OUT);
             });
         }
 
-        // 신규 방: 잔여 기간 스케줄 등록 + 재실(OCCUPIED) 상태로 변경
-        targetRoom.bookPeriod(remainingPeriod);
+        // 신규 방: 잔여 기간 등록 + 재실(OCCUPIED) 상태로 변경
+        if (remainingPeriod != null) {
+            targetRoom.bookPeriod(remainingPeriod);
+        }
         targetRoom.setStatus(RoomStatus.OCCUPIED);
 
         // 예약 객체 상태 전이 (ROOM_CHANGED 및 새 호실 갱신)

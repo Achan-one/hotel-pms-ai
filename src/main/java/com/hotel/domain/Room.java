@@ -102,7 +102,9 @@ public class Room {
 
     /**
      * 특정 이동 일자(moveDate) 이후의 잔여 스케줄을 잘라내어 반납합니다.
-     * 예: [9/20 ~ 9/23] 예약 중 9/21에 룸체인지 시 -> [9/20 ~ 9/21]로 축소
+     * - 당일 체크인 0박 룸 무브: moveDate == checkInDate -> 기존 방 스케줄 완전 회수
+     * - 연박 중 룸 무브: checkInDate < moveDate < checkOutDate -> 과거 투숙 구간만 보존
+     * - 조기 퇴실: moveDate 기준 이후 스케줄 즉시 반납
      */
     public void truncatePeriodFrom(LocalDate moveDate) {
         if (moveDate == null) return;
@@ -114,6 +116,8 @@ public class Room {
                 if (moveDate.isAfter(p.getCheckInDate())) {
                     updated.add(new StayPeriod(p.getCheckInDate(), moveDate));
                 }
+                // moveDate.equals(p.getCheckInDate())인 경우 (0박 당일 이동):
+                // 과거 투숙이 없으므로 updated에 추가하지 않고 완전히 비움
             }
             // 2. 이동 일자보다 완전히 이전인 과거 투숙은 그대로 유지
             else if (!p.getCheckOutDate().isAfter(moveDate)) {

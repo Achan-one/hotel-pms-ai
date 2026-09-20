@@ -113,32 +113,35 @@ public class ReservationService {
     }
 
     /**
-     * 기존 2개 파라미터 호출 호환 편의 메서드 (당일 기준 잔여 기간 이전)
+     * 기존 2개 파라미터 호출 호환 편의 메서드
+     * - 체크인 날짜가 아닌 현재 운영 당일(LocalDate.now()) 기준으로 안전하게 남은 박수를 분할
      */
     public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
         Reservation reservation = findReservationOrThrow(reservationId);
-        LocalDate moveDate = (reservation.getCheckInDate() != null) ? reservation.getCheckInDate() : LocalDate.now();
+        LocalDate moveDate = LocalDate.now();
         RoomChangeRequest request = new RoomChangeRequest(reservationId, targetRoomNumber, moveDate, "현장 프론트 요청");
         return processRoomChange(request);
     }
 
     /**
      * [5. 프론트 데스크 체크아웃]
-     * CHECKED_IN / ROOM_CHANGED -> CHECKED_OUT 상태 전이 및 객실 실물 OUT(체크아웃 청소 대기) 반영
+     * - 조기 체크아웃(Early Departure) 시 당일 이후의 미래 스케줄 자동 회수 및 OUT 상태 전이
      */
     public void processCheckOut(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
         reservation.checkOut();
         reservationRepository.save(reservation);
 
-        // 실물 객실 상태를 체크아웃 완료 청소 대기(OUT)로 전이
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+                // 조기 퇴실 시 오늘 이후로 잡혀있던 잔여 예약 구간을 즉시 잘라내어 공실로 환원
+                room.truncatePeriodFrom(LocalDate.now());
                 room.setStatus(RoomStatus.OUT);
             });
         }
     }
+
     /**
      * [6. 다조건 통합 검색]
      */
