@@ -7,10 +7,12 @@ import java.util.List;
 
 public class BatchAssignmentResult {
 
-    private final List<Reservation> successfulAssignments;
-    private final List<Reservation> failedAssignments;
+    public record FailedAssignmentItem(Reservation reservation, String reason) {}
 
-    public BatchAssignmentResult(List<Reservation> successfulAssignments, List<Reservation> failedAssignments) {
+    private final List<Reservation> successfulAssignments;
+    private final List<FailedAssignmentItem> failedAssignments;
+
+    public BatchAssignmentResult(List<Reservation> successfulAssignments, List<FailedAssignmentItem> failedAssignments) {
         this.successfulAssignments = Collections.unmodifiableList(successfulAssignments);
         this.failedAssignments = Collections.unmodifiableList(failedAssignments);
     }
@@ -19,8 +21,12 @@ public class BatchAssignmentResult {
         return successfulAssignments;
     }
 
-    public List<Reservation> getFailedAssignments() {
+    public List<FailedAssignmentItem> getFailedAssignments() {
         return failedAssignments;
+    }
+
+    public List<Reservation> getFailedReservations() {
+        return failedAssignments.stream().map(FailedAssignmentItem::reservation).toList();
     }
 
     public int getTotalCount() {
@@ -43,12 +49,6 @@ public class BatchAssignmentResult {
             - 배정 성공: %d건
             - 배정 실패(만실 등): %d건
             ==================================================""",
-                getTotalCount(), getSuccessCount(), getFailureCount());
-    }
-
-    @Override
-    public String toString() {
-        return String.format("BatchAssignmentResult[총 %d건 | 성공: %d건 | 실패(만실 등): %d건]",
                 getTotalCount(), getSuccessCount(), getFailureCount());
     }
 }

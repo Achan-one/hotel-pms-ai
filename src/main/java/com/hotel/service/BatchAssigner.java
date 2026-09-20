@@ -41,14 +41,15 @@ public class BatchAssigner {
         prioritizedQueue.sort(RESERVATION_PRIORITY_COMPARATOR);
 
         List<Reservation> successes = new ArrayList<>();
-        List<Reservation> failures = new ArrayList<>();
+        List<BatchAssignmentResult.FailedAssignmentItem> failures = new ArrayList<>();
 
         for (Reservation reservation : prioritizedQueue) {
             Optional<Room> assignedRoom = roomAssigner.assign(reservation);
             if (assignedRoom.isPresent()) {
                 successes.add(reservation);
             } else {
-                failures.add(reservation);
+                String reason = String.format("[%s] 타입 객실 인벤토리 소진 (만실)", reservation.getBookedRoomType().getDescription());
+                failures.add(new BatchAssignmentResult.FailedAssignmentItem(reservation, reason));
             }
         }
 

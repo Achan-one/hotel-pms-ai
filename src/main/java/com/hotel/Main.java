@@ -94,30 +94,29 @@ public class Main {
         System.out.println("========================================================================================================================\n");
 
         // 7. ⚠️ [배정 실패 건 상세 목록]
-        List<Reservation> failedList = assignmentResult.getFailedAssignments();
-        if (!failedList.isEmpty()) {
+        var failedItems = assignmentResult.getFailedAssignments();
+        if (!failedItems.isEmpty()) {
             System.out.println("================================================================================");
-            System.out.printf("⚠️ [배정 실패 알림] 총 %d건의 예약이 배정되지 못했습니다 (해당 타입 만실)%n", failedList.size());
+            System.out.printf("⚠️ [배정 실패 알림] 총 %d건의 예약이 배정되지 못했습니다%n", failedItems.size());
             System.out.println("================================================================================");
-            System.out.printf("%-13s | %-16s | %-4s | %-26s | %s%n",
-                    "예약ID", "신청 객실타입", "박수", "AI 분석 선호도", "고객 요청 메모(원문)");
+            System.out.printf("%-13s | %-16s | %-4s | %-24s | %s%n",
+                    "예약ID", "신청 객실타입", "박수", "실패 사유", "고객 요청 메모(원문)");
             System.out.println("--------------------------------------------------------------------------------");
 
-            for (Reservation failed : failedList) {
+            for (var item : failedItems) {
+                Reservation failed = item.reservation();
                 String memo = failed.getRawRequestText();
                 if (memo == null || memo.isBlank()) memo = "(요청 없음)";
 
-                System.out.printf("%-13s | %-16s | %-3d박 | %-24s | %s%n",
+                System.out.printf("%-13s | %-16s | %-3d박 | %-22s | %s%n",
                         failed.getReservationId(),
                         failed.getBookedRoomType().getDescription(),
                         failed.getStayNights(),
-                        failed.getPreference(),
+                        item.reason(),
                         memo
                 );
             }
             System.out.println("--------------------------------------------------------------------------------\n");
-        } else {
-            System.out.println("🎉 축하합니다! 모든 예약이 100% 성공적으로 객실에 배정되었습니다.\n");
         }
 
         // 8. 🛎️ 프론트 데스크 실무: 첫 번째 배정 고객 체크인(STAYING) 후 수동 룸 체인지 시뮬레이션
