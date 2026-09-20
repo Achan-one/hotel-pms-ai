@@ -1,52 +1,98 @@
 package com.hotel.domain;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Objects;
 
 public class Reservation {
+    // 1. 기본 식별 및 객실 기본 정보
     private final String reservationId;
     private final String guestName;
     private final RoomType bookedRoomType;
     private final LocalDate checkInDate;
     private final int stayNights;
+    private final int guestCount;
     private final String rawRequestText;
     private final GuestPreference preference;
 
+    // 2. 호텔 실무 확장 필드 (채널, 조식, 정산, 도착/출발 시간)
+    private final BookingChannelInfo channelInfo;
+    private final BreakfastOption breakfastOption;
+    private final PaymentLedger paymentLedger;
+    private LocalTime estimatedArrivalTime; // 예상 도착 시각 (ETA)
+    private LocalTime lateCheckOutTime;     // 레이트 체크아웃 확정 시각
+
+    // 3. 동적 상태 필드
     private String assignedRoomNumber;
     private ReservationStatus status;
 
-    // 하위 호환용 6개 인자 생성자 (당일 체크인 기준)
-    public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
-                       int stayNights, String rawRequestText, GuestPreference preference) {
-        this(reservationId, guestName, bookedRoomType, LocalDate.now(), stayNights, rawRequestText, preference);
-    }
+    // ==========================================
+    // 생성자 (전체 인자 마스터 생성자)
+    // ==========================================
+    public Reservation(String reservationId,
+                       String guestName,
+                       RoomType bookedRoomType,
+                       LocalDate checkInDate,
+                       int stayNights,
+                       int guestCount,
+                       String rawRequestText,
+                       GuestPreference preference,
+                       BookingChannelInfo channelInfo,
+                       BreakfastOption breakfastOption,
+                       PaymentLedger paymentLedger,
+                       LocalTime estimatedArrivalTime) {
 
-    // 날짜 명시 생성자
-    public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
-                       LocalDate checkInDate, int stayNights, String rawRequestText, GuestPreference preference) {
         this.reservationId = Objects.requireNonNull(reservationId, "예약 ID는 필수입니다.");
         this.guestName = Objects.requireNonNull(guestName, "투숙객 이름은 필수입니다.");
         this.bookedRoomType = Objects.requireNonNull(bookedRoomType, "예약 객실 타입은 필수입니다.");
-        this.checkInDate = checkInDate;
+        this.checkInDate = Objects.requireNonNull(checkInDate, "체크인 날짜는 필수입니다.");
 
         if (stayNights < 1) {
             throw new IllegalArgumentException("숙박 일수는 최소 1박 이상이어야 합니다.");
         }
         this.stayNights = stayNights;
+        this.guestCount = Math.max(1, guestCount);
 
         this.rawRequestText = (rawRequestText != null && !rawRequestText.isBlank()) ? rawRequestText.trim() : null;
         this.preference = (preference != null) ? preference : GuestPreference.empty();
+
+        // 실무 VO 기본값 세팅
+        this.channelInfo = (channelInfo != null) ? channelInfo : BookingChannelInfo.direct(reservationId);
+        this.breakfastOption = (breakfastOption != null) ? breakfastOption : BreakfastOption.none();
+        this.paymentLedger = (paymentLedger != null) ? paymentLedger : new PaymentLedger(PaymentLedger.PaymentType.PAY_ON_ARRIVAL, 0);
+        this.estimatedArrivalTime = (estimatedArrivalTime != null) ? estimatedArrivalTime : LocalTime.of(15, 0);
+        this.lateCheckOutTime = null;
+
         this.assignedRoomNumber = null;
-        this.status = ReservationStatus.PENDING; // 최초 인입 시 '접수완료(방 미배정)'
+        this.status = ReservationStatus.PENDING;
+    }
+
+    // ==========================================
+    // 편의 오버로딩 생성자 (레거시 및 기존 코드 100% 호환)
+    // ==========================================
+
+    /**
+     * [레거시 6개 인자] 체크인 일자 생략 시 오늘(LocalDate.now()) 기준 1인 투숙
+     */
+    public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
+                       int stayNights, String rawRequestText, GuestPreference preference) {
+        this(reservationId, guestName, bookedRoomType, LocalDate.now(), stayNights, 1,
+                rawRequestText, preference, null, null, null, LocalTime.of(15, 0));
+    }
+
+    /**
+     * [레거시 7개 인자] 날짜 명시 기본 생성자
+     */
+    public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
+                       LocalDate checkInDate, int stayNights, String rawRequestText, GuestPreference preference) {
+        this(reservationId, guestName, bookedRoomType, checkInDate, stayNights, 1,
+                rawRequestText, preference, null, null, null, LocalTime.of(15, 0));
     }
 
     // ==========================================
     // 예약 상태 전이 (State Transition) 도메인 로직
     // ==========================================
 
-    /**
-     * 객실 자동/수동 배정 확정
-     */
     public void assignRoom(String roomNumber) {
         if (roomNumber == null || roomNumber.isBlank()) {
             throw new IllegalArgumentException("배정할 객실 번호가 올바르지 않습니다.");
@@ -55,17 +101,11 @@ public class Reservation {
         this.status = ReservationStatus.ASSIGNED;
     }
 
-    /**
-     * 배정 취소 (다시 미배정 접수 상태로 복구)
-     */
     public void cancelAssignment() {
         this.assignedRoomNumber = null;
         this.status = ReservationStatus.PENDING;
     }
 
-    /**
-     * 당일 도착 예정 확정 (배정 완료 상태 -> 체크인 전 대기 상태)
-     */
     public void markReadyForCheckIn() {
         if (this.assignedRoomNumber == null) {
             throw new IllegalStateException("객실이 배정되지 않은 상태에서는 체크인 전 단계로 변경할 수 없습니다.");
@@ -73,19 +113,17 @@ public class Reservation {
         this.status = ReservationStatus.CHECKED_IN;
     }
 
-    /**
-     * 실제 프론트 도착 및 키 카드 수령 (숙박중 상태로 전환)
-     */
     public void startStaying() {
         if (this.assignedRoomNumber == null) {
             throw new IllegalStateException("객실이 배정되지 않은 예약은 입실(STAYING)할 수 없습니다.");
         }
+        // 체크인 시 조식이 포함된 예약이면 식권 자동 발급
+        if (this.breakfastOption.isIncluded() && !this.breakfastOption.isTicketsIssued()) {
+            this.breakfastOption.issueTickets();
+        }
         this.status = ReservationStatus.STAYING;
     }
 
-    /**
-     * 룸 체인지 실행 (신규 객실 번호 갱신 및 상태 변경)
-     */
     public void changeRoom(String newRoomNumber) {
         if (newRoomNumber == null || newRoomNumber.isBlank()) {
             throw new IllegalArgumentException("이동할 신규 객실 번호가 올바르지 않습니다.");
@@ -94,34 +132,35 @@ public class Reservation {
         this.status = ReservationStatus.ROOM_CHANGED;
     }
 
-    /**
-     * 퇴실 처리 (체크아웃 완료)
-     */
     public void checkOut() {
         if (!this.status.isInHouse()) {
             throw new IllegalStateException("현재 숙박 중(STAYING 또는 ROOM_CHANGED)인 고객만 체크아웃할 수 있습니다.");
         }
+
+        long balance = this.paymentLedger.getBalance();
+        if (balance > 0) {
+            throw new IllegalStateException("미정산 금액(" + balance + "원)이 남아있어 체크아웃할 수 없습니다.");
+        }
+        if (balance < 0) {
+            throw new IllegalStateException("초과 수납/환불 대상 금액(" + Math.abs(balance) + "원)이 남아있어 체크아웃할 수 없습니다.");
+        }
+
         this.status = ReservationStatus.CHECKED_OUT;
     }
 
-    /**
-     * 예약 자체 취소
-     */
     public void cancelReservation() {
         this.assignedRoomNumber = null;
         this.status = ReservationStatus.CANCELLED;
     }
 
-    /**
-     * 유효한 객실이 부여되어 있는지 여부 (배정, 체크인 전, 숙박중, 룸체인지 모두 포함)
-     */
+    public void grantLateCheckOut(LocalTime time) {
+        this.lateCheckOutTime = Objects.requireNonNull(time, "연장 시간은 필수입니다.");
+    }
+
     public boolean isAssigned() {
         return this.assignedRoomNumber != null && this.status.hasAssignedRoom();
     }
 
-    /**
-     * 불변 선호도 주입 복제 (AI 파싱 결과 반영 시 상태 유지)
-     */
     public Reservation withPreference(GuestPreference newPreference) {
         Reservation cloned = new Reservation(
                 this.reservationId,
@@ -129,21 +168,22 @@ public class Reservation {
                 this.bookedRoomType,
                 this.checkInDate,
                 this.stayNights,
+                this.guestCount,
                 this.rawRequestText,
-                newPreference
+                newPreference,
+                this.channelInfo,
+                this.breakfastOption,
+                this.paymentLedger,
+                this.estimatedArrivalTime
         );
         cloned.status = this.status;
-        if (this.assignedRoomNumber != null) {
-            cloned.assignedRoomNumber = this.assignedRoomNumber;
-        }
+        cloned.assignedRoomNumber = this.assignedRoomNumber;
+        cloned.lateCheckOutTime = this.lateCheckOutTime;
         return cloned;
     }
 
     public LocalDate getCheckOutDate() {
-        if (this.checkInDate == null) {
-            return null;
-        }
-        return this.checkInDate.plusDays(this.stayNights);
+        return (this.checkInDate != null) ? this.checkInDate.plusDays(this.stayNights) : null;
     }
 
     // Getters
@@ -152,8 +192,14 @@ public class Reservation {
     public RoomType getBookedRoomType() { return bookedRoomType; }
     public LocalDate getCheckInDate() { return checkInDate; }
     public int getStayNights() { return stayNights; }
+    public int getGuestCount() { return guestCount; }
     public String getRawRequestText() { return rawRequestText; }
     public GuestPreference getPreference() { return preference; }
+    public BookingChannelInfo getChannelInfo() { return channelInfo; }
+    public BreakfastOption getBreakfastOption() { return breakfastOption; }
+    public PaymentLedger getPaymentLedger() { return paymentLedger; }
+    public LocalTime getEstimatedArrivalTime() { return estimatedArrivalTime; }
+    public LocalTime getLateCheckOutTime() { return lateCheckOutTime; }
     public String getAssignedRoomNumber() { return assignedRoomNumber; }
     public ReservationStatus getStatus() { return status; }
 
@@ -172,13 +218,15 @@ public class Reservation {
 
     @Override
     public String toString() {
-        return String.format("[%s | %s | %s | %s~%s (%d박) | 상태:%s | 배정:%s]",
+        return String.format("[%s | %s | %s | %s~%s (%d박) | 채널:%s | 조식:%s | 상태:%s | 배정:%s]",
                 reservationId,
                 guestName,
                 bookedRoomType.getDescription(),
                 checkInDate,
                 getCheckOutDate(),
                 stayNights,
+                channelInfo.channelType().getDescription(),
+                breakfastOption.isIncluded() ? (breakfastOption.getDailyBreakfastCount() + "인") : "불포함",
                 status.getTitle(),
                 isAssigned() ? (assignedRoomNumber + "호") : "미배정"
         );

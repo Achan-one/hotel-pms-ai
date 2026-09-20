@@ -33,13 +33,11 @@ class ReservationValidatorTest {
     }
 
     @Test
-    @DisplayName("체크인 날짜가 누락된 경우 실패")
+    @DisplayName("체크인 날짜가 누락된 경우 객체 생성 단계에서 차단된다")
     void checkInDate_Null_Failure() {
-        Reservation res = new Reservation("RES002", "Sato", RoomType.SUPERIOR_TWIN, null, 2, "엘리베이터 근처", GuestPreference.empty());
-        ValidationResult result = validator.validateSingle(res);
-
-        assertFalse(result.isValid());
-        assertTrue(result.getReason().contains("체크인 날짜가 누락되었습니다"));
+        assertThrows(NullPointerException.class, () -> {
+            new Reservation("RSV-ERR", "Guest", RoomType.MODERATE_DOUBLE, null, 1, null, null);
+        });
     }
 
     @Test
