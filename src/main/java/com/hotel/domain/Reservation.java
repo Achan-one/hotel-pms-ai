@@ -15,6 +15,9 @@ public class Reservation {
     private final String rawRequestText;
     private final GuestPreference preference;
 
+    // [신규] 태그 지향 아키텍처: AI가 스위치를 켠 동적 태그 선호도
+    private final TagPreference tagPreference;
+
     // 2. 호텔 실무 확장 필드 (채널, 조식, 정산, 도착/출발 시간)
     private final BookingChannelInfo channelInfo;
     private final BreakfastOption breakfastOption;
@@ -24,11 +27,11 @@ public class Reservation {
 
     // 3. 동적 상태 필드
     private String assignedRoomNumber;
-    private String previousRoomNumber;      // [수정 1] 룸 체인지 이전 호실 이력 추적 필드
+    private String previousRoomNumber;      // 룸 체인지 이전 호실 이력 추적 필드
     private ReservationStatus status;
 
     // ==========================================
-    // 생성자 (전체 인자 마스터 생성자)
+    // 생성자 (태그 선호도 포함 전체 인자 마스터 생성자)
     // ==========================================
     public Reservation(String reservationId,
                        String guestName,
@@ -38,6 +41,7 @@ public class Reservation {
                        int guestCount,
                        String rawRequestText,
                        GuestPreference preference,
+                       TagPreference tagPreference,
                        BookingChannelInfo channelInfo,
                        BreakfastOption breakfastOption,
                        PaymentLedger paymentLedger,
@@ -56,6 +60,7 @@ public class Reservation {
 
         this.rawRequestText = (rawRequestText != null && !rawRequestText.isBlank()) ? rawRequestText.trim() : null;
         this.preference = (preference != null) ? preference : GuestPreference.empty();
+        this.tagPreference = (tagPreference != null) ? tagPreference : TagPreference.empty();
 
         // 실무 VO 기본값 세팅
         this.channelInfo = (channelInfo != null) ? channelInfo : BookingChannelInfo.direct(reservationId);
@@ -74,12 +79,31 @@ public class Reservation {
     // ==========================================
 
     /**
+     * [레거시 마스터 생성자 호환] TagPreference가 없는 경우 빈 객체로 위임
+     */
+    public Reservation(String reservationId,
+                       String guestName,
+                       RoomType bookedRoomType,
+                       LocalDate checkInDate,
+                       int stayNights,
+                       int guestCount,
+                       String rawRequestText,
+                       GuestPreference preference,
+                       BookingChannelInfo channelInfo,
+                       BreakfastOption breakfastOption,
+                       PaymentLedger paymentLedger,
+                       LocalTime estimatedArrivalTime) {
+        this(reservationId, guestName, bookedRoomType, checkInDate, stayNights, guestCount,
+                rawRequestText, preference, TagPreference.empty(), channelInfo, breakfastOption, paymentLedger, estimatedArrivalTime);
+    }
+
+    /**
      * [레거시 6개 인자] 체크인 일자 생략 시 오늘(LocalDate.now()) 기준 1인 투숙
      */
     public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
                        int stayNights, String rawRequestText, GuestPreference preference) {
         this(reservationId, guestName, bookedRoomType, LocalDate.now(), stayNights, 1,
-                rawRequestText, preference, null, null, null, LocalTime.of(15, 0));
+                rawRequestText, preference, TagPreference.empty(), null, null, null, LocalTime.of(15, 0));
     }
 
     /**
@@ -88,7 +112,7 @@ public class Reservation {
     public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
                        LocalDate checkInDate, int stayNights, String rawRequestText, GuestPreference preference) {
         this(reservationId, guestName, bookedRoomType, checkInDate, stayNights, 1,
-                rawRequestText, preference, null, null, null, LocalTime.of(15, 0));
+                rawRequestText, preference, TagPreference.empty(), null, null, null, LocalTime.of(15, 0));
     }
 
     // ==========================================
@@ -118,7 +142,6 @@ public class Reservation {
         this.status = ReservationStatus.DUE_IN;
     }
 
-    // 기존 호출 호환용
     public void markReadyForCheckIn() {
         markDueIn();
     }
@@ -136,13 +159,12 @@ public class Reservation {
         this.status = ReservationStatus.CHECKED_IN;
     }
 
-    // 기존 startStaying() 호출 호환용
     public void startStaying() {
         checkIn();
     }
 
     /**
-     * [수정 2] 룸 체인지 실행 시 이전 호실 번호를 previousRoomNumber에 보존
+     * 룸 체인지 실행 시 이전 호실 번호를 previousRoomNumber에 보존
      */
     public void changeRoom(String newRoomNumber) {
         if (newRoomNumber == null || newRoomNumber.isBlank()) {
@@ -192,6 +214,7 @@ public class Reservation {
                 this.guestCount,
                 this.rawRequestText,
                 newPreference,
+                this.tagPreference, // 기존 태그 선호도 보존
                 this.channelInfo,
                 this.breakfastOption,
                 this.paymentLedger,
@@ -199,7 +222,33 @@ public class Reservation {
         );
         cloned.status = this.status;
         cloned.assignedRoomNumber = this.assignedRoomNumber;
-        cloned.previousRoomNumber = this.previousRoomNumber; // [수정 3-1] 복제 시 이전 방 번호 보존
+        cloned.previousRoomNumber = this.previousRoomNumber;
+        cloned.lateCheckOutTime = this.lateCheckOutTime;
+        return cloned;
+    }
+
+    /**
+     * [신규 불변 복제] AI가 분석한 TagPreference를 주입한 신규 Reservation 생성
+     */
+    public Reservation withTagPreference(TagPreference newTagPreference) {
+        Reservation cloned = new Reservation(
+                this.reservationId,
+                this.guestName,
+                this.bookedRoomType,
+                this.checkInDate,
+                this.stayNights,
+                this.guestCount,
+                this.rawRequestText,
+                this.preference,
+                newTagPreference, // 신규 태그 선호도 반영
+                this.channelInfo,
+                this.breakfastOption,
+                this.paymentLedger,
+                this.estimatedArrivalTime
+        );
+        cloned.status = this.status;
+        cloned.assignedRoomNumber = this.assignedRoomNumber;
+        cloned.previousRoomNumber = this.previousRoomNumber;
         cloned.lateCheckOutTime = this.lateCheckOutTime;
         return cloned;
     }
@@ -217,14 +266,16 @@ public class Reservation {
     public int getGuestCount() { return guestCount; }
     public String getRawRequestText() { return rawRequestText; }
     public GuestPreference getPreference() { return preference; }
+    public TagPreference getTagPreference() { return tagPreference != null ? tagPreference : TagPreference.empty(); }
     public BookingChannelInfo getChannelInfo() { return channelInfo; }
     public BreakfastOption getBreakfastOption() { return breakfastOption; }
     public PaymentLedger getPaymentLedger() { return paymentLedger; }
     public LocalTime getEstimatedArrivalTime() { return estimatedArrivalTime; }
     public LocalTime getLateCheckOutTime() { return lateCheckOutTime; }
     public String getAssignedRoomNumber() { return assignedRoomNumber; }
-    public String getPreviousRoomNumber() { return previousRoomNumber; } // [수정 3-2] Getter 추가
+    public String getPreviousRoomNumber() { return previousRoomNumber; }
     public ReservationStatus getStatus() { return status; }
+    public void setStatus(ReservationStatus status) { this.status = Objects.requireNonNull(status); }
 
     @Override
     public boolean equals(Object o) {
@@ -241,7 +292,7 @@ public class Reservation {
 
     @Override
     public String toString() {
-        return String.format("[%s | %s | %s | %s~%s (%d박) | 채널:%s | 조식:%s | 상태:%s | 배정:%s%s]",
+        return String.format("[%s | %s | %s | %s~%s (%d박) | 채널:%s | 조식:%s | 상태:%s | 배정:%s%s | 태그:%s]",
                 reservationId,
                 guestName,
                 bookedRoomType.getDescription(),
@@ -252,7 +303,8 @@ public class Reservation {
                 breakfastOption.isIncluded() ? (breakfastOption.getDailyBreakfastCount() + "인") : "불포함",
                 status.getTitle(),
                 isAssigned() ? (assignedRoomNumber + "호") : "미배정",
-                (previousRoomNumber != null) ? (" (이전: " + previousRoomNumber + "호)") : ""
+                (previousRoomNumber != null) ? (" (이전: " + previousRoomNumber + "호)") : "",
+                (tagPreference != null && !tagPreference.isEmpty()) ? tagPreference.toString() : "없음"
         );
     }
 }

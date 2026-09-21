@@ -2,8 +2,11 @@ package com.hotel.domain;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public class Room {
     private final String roomNumber;
@@ -11,6 +14,9 @@ public class Room {
     private final RoomType roomType;
     private final boolean nearElevator;
     private final boolean cornerRoom;
+
+    // [신규] 태그 지향 아키텍처: 동적 태그 컬렉션
+    private final Set<String> tags;
 
     // 하우스키핑 및 운영 룸 랙 상태 (기본값: VACANT)
     private RoomStatus status;
@@ -30,12 +36,50 @@ public class Room {
         this.status = RoomStatus.VACANT;
         this.assigned = false;
         this.bookedPeriods = new ArrayList<>();
+
+        // [신규] 태그 세트 초기화 및 기존 물리 속성 기반 기본 태그 자동 세팅
+        this.tags = new HashSet<>();
+        initDefaultTags();
+    }
+
+    /**
+     * 기존 물리 속성을 태그로 매핑하여 기본 탑재
+     */
+    private void initDefaultTags() {
+        if (this.floor >= 10) tags.add(RoomTag.HIGH_FLOOR.code());
+        if (this.floor <= 6) tags.add(RoomTag.LOW_FLOOR.code());
+        if (this.nearElevator) tags.add(RoomTag.NEAR_ELEVATOR.code());
+        else tags.add(RoomTag.AWAY_FROM_ELEVATOR.code());
+
+        if (this.cornerRoom) tags.add(RoomTag.CORNER_ROOM.code());
+        if (!this.nearElevator && this.cornerRoom) tags.add(RoomTag.QUIET_ZONE.code());
+    }
+
+    // ==========================================
+    // [신규] 동적 태그 관리 API
+    // ==========================================
+    public void addTag(String tagCode) {
+        if (tagCode != null && !tagCode.isBlank()) {
+            this.tags.add(tagCode.trim().toUpperCase());
+        }
+    }
+
+    public void removeTag(String tagCode) {
+        if (tagCode != null) {
+            this.tags.remove(tagCode.trim().toUpperCase());
+        }
+    }
+
+    public boolean hasTag(String tagCode) {
+        return tagCode != null && this.tags.contains(tagCode.trim().toUpperCase());
+    }
+
+    public Set<String> getTags() {
+        return Collections.unmodifiableSet(tags);
     }
 
     /**
      * 특정 투숙 기간에 해당 객실이 배정 가능한지 확인
-     * 1. 룸 랙 상태가 고장(BREAK)이나 점검(BLOCKED) 등 판매 불가 상태면 즉시 거절
-     * 2. 해당 날짜 구간에 겹치는 스케줄이 없어야 통과
      */
     public boolean isAvailable(StayPeriod period) {
         if (this.status.isOutOfService()) {
@@ -86,9 +130,6 @@ public class Room {
         this.status = RoomStatus.VACANT;
     }
 
-    /**
-     * 잔여 스케줄 부분 반납
-     */
     public boolean cancelPeriod(StayPeriod period) {
         if (period == null) {
             return false;
@@ -100,30 +141,18 @@ public class Room {
         return removed;
     }
 
-    /**
-     * 특정 이동 일자(moveDate) 이후의 잔여 스케줄을 잘라내어 반납합니다.
-     * - 당일 체크인 0박 룸 무브: moveDate == checkInDate -> 기존 방 스케줄 완전 회수
-     * - 연박 중 룸 무브: checkInDate < moveDate < checkOutDate -> 과거 투숙 구간만 보존
-     * - 조기 퇴실: moveDate 기준 이후 스케줄 즉시 반납
-     */
     public void truncatePeriodFrom(LocalDate moveDate) {
         if (moveDate == null) return;
 
         List<StayPeriod> updated = new ArrayList<>();
         for (StayPeriod p : this.bookedPeriods) {
-            // 1. 이동 일자가 투숙 기간 중간에 걸쳐 있는 경우: 과거 구간만 보존
             if (!moveDate.isBefore(p.getCheckInDate()) && moveDate.isBefore(p.getCheckOutDate())) {
                 if (moveDate.isAfter(p.getCheckInDate())) {
                     updated.add(new StayPeriod(p.getCheckInDate(), moveDate));
                 }
-                // moveDate.equals(p.getCheckInDate())인 경우 (0박 당일 이동):
-                // 과거 투숙이 없으므로 updated에 추가하지 않고 완전히 비움
-            }
-            // 2. 이동 일자보다 완전히 이전인 과거 투숙은 그대로 유지
-            else if (!p.getCheckOutDate().isAfter(moveDate)) {
+            } else if (!p.getCheckOutDate().isAfter(moveDate)) {
                 updated.add(p);
             }
-            // 3. 이동 일자 이후의 미래 구간은 리스트에서 자동 탈락(반납)
         }
 
         this.bookedPeriods.clear();
@@ -150,11 +179,10 @@ public class Room {
 
     @Override
     public String toString() {
-        return String.format("[%s호 | %2d층 | %-10s | 상태:%s | 엘베:%s | 코너:%s | %s]",
+        return String.format("[%s호 | %2d층 | %-10s | 상태:%s | 태그:%s | %s]",
                 roomNumber, floor, roomType.getDescription(),
                 status.getTitle(),
-                nearElevator ? "O" : "X",
-                cornerRoom ? "O" : "X",
+                tags,
                 isAssigned() ? "배정완료" : "공실"
         );
     }

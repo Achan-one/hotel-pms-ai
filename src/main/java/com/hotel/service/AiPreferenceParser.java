@@ -4,10 +4,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotel.config.AiModelConfig;
-import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
-import com.hotel.service.dto.GeminiBatchPreferenceDto;
-import com.hotel.service.dto.GeminiPreferenceDto;
+import com.hotel.domain.TagPreference;
+import com.hotel.repository.TagRepository;
+import com.hotel.service.dto.GeminiBatchTagDto;
 import com.hotel.util.EnvLoader;
 
 import java.io.IOException;
@@ -19,25 +19,42 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class AiPreferenceParser {
 
     private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
+    private final TagRepository tagRepository;
     private final String apiKey;
     private final AiModelConfig config;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
-    // 기본 생성자: .env 자동 구성
+    // ==========================================
+    // 1. 생성자 오버로딩 (모든 호출부 호환 보장)
+    // ==========================================
+
+    // [호환 1] Main, ReservationService 기본 생성자 호출부
     public AiPreferenceParser() {
-        this(EnvLoader.get("GEMINI_API_KEY"), AiModelConfig.fromEnvOrDefault());
+        this(new TagRepository(), EnvLoader.get("GEMINI_API_KEY"), AiModelConfig.fromEnvOrDefault());
     }
 
-    // 주입용 생성자
+    // [호환 2] TagRepository 단독 주입 생성자
+    public AiPreferenceParser(TagRepository tagRepository) {
+        this(tagRepository, EnvLoader.get("GEMINI_API_KEY"), AiModelConfig.fromEnvOrDefault());
+    }
+
+    // [호환 3] ReservationServiceTest 가짜 스텁(Stub) 주입 생성자
     public AiPreferenceParser(String apiKey, AiModelConfig config) {
+        this(new TagRepository(), apiKey, config);
+    }
+
+    // [마스터 생성자] 모든 의존성 주입 기준점
+    public AiPreferenceParser(TagRepository tagRepository, String apiKey, AiModelConfig config) {
+        this.tagRepository = (tagRepository != null) ? tagRepository : new TagRepository();
         this.apiKey = apiKey;
-        this.config = config != null ? config : AiModelConfig.fromEnvOrDefault();
+        this.config = (config != null) ? config : AiModelConfig.fromEnvOrDefault();
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -45,16 +62,16 @@ public class AiPreferenceParser {
     }
 
     // ==========================================
-    // 1. 단일 예약 파싱 (Single)
+    // 2. 단일 메모 파싱 (Single)
     // ==========================================
-    public GuestPreference parse(String requestText) {
+    public TagPreference parse(String requestText) {
         if (requestText == null || requestText.trim().isEmpty()) {
-            return GuestPreference.empty();
+            return TagPreference.empty();
         }
 
         if (apiKey == null || apiKey.isBlank()) {
-            System.err.println("[AiPreferenceParser] API 키가 없어 기본 선호도를 반환합니다.");
-            return GuestPreference.empty();
+            System.err.println("[AiPreferenceParser] API 키가 없어 빈 태그 선호도를 반환합니다.");
+            return TagPreference.empty();
         }
 
         try {
@@ -72,22 +89,22 @@ public class AiPreferenceParser {
 
             if (response.statusCode() != 200) {
                 System.err.println("[AiPreferenceParser] API 오류 (" + response.statusCode() + "): " + response.body());
-                return GuestPreference.empty();
+                return TagPreference.empty();
             }
 
-            return extractPreferenceFromJson(response.body());
+            return extractSingleTagPreferenceFromJson(response.body());
 
         } catch (Exception e) {
             System.err.println("[AiPreferenceParser] 단일 파싱 예외 발생: " + e.getMessage());
-            return GuestPreference.empty();
+            return TagPreference.empty();
         }
     }
 
     // ==========================================
-    // 2. 대량 예약 일괄 파싱 (Batch - 단 1회 API 호출)
+    // 3. 대량 예약 일괄 파싱 (Batch - 단 1회 API 호출)
     // ==========================================
-    public Map<String, GuestPreference> parseBatch(List<Reservation> reservations) {
-        Map<String, GuestPreference> resultMap = new HashMap<>();
+    public Map<String, TagPreference> parseBatch(List<Reservation> reservations) {
+        Map<String, TagPreference> resultMap = new HashMap<>();
         if (reservations == null || reservations.isEmpty()) {
             return resultMap;
         }
@@ -115,7 +132,7 @@ public class AiPreferenceParser {
                 return resultMap;
             }
 
-            return extractBatchPreferencesFromJson(response.body());
+            return extractBatchTagPreferencesFromJson(response.body());
 
         } catch (Exception e) {
             System.err.println("[AiPreferenceParser] 일괄 파싱 중 예외 발생: " + e.getMessage());
@@ -124,24 +141,7 @@ public class AiPreferenceParser {
     }
 
     private String buildPromptPayload(String userText) throws IOException {
-        String systemInstruction = """
-                당신은 일본 호텔 PMS 객실 배정 지원 시스템입니다.
-                고객의 비정형 요청 메모를 분석하여 객실 선호도 JSON 객체 1개만 반환하세요.
-                
-                [규칙]
-                - floorPref: "HIGH" (고층, 전망), "LOW" (저층, 어르신/아이 동반, 이동 편리), "NONE"
-                - elevatorPref: "AWAY" (엘베 먼 곳, 안쪽 방), "NEAR" (엘베 가까운 곳), "NONE"
-                - cornerPref: "PREFER" (코너/끝방 선호), "AVOID" (끝방 기피), "NONE"
-                - preferQuiet: true (조용한 곳, 소음 민감), false
-                
-                반드시 아래 규격으로만 응답하세요:
-                {
-                  "floorPref": "HIGH" | "LOW" | "NONE",
-                  "elevatorPref": "AWAY" | "NEAR" | "NONE",
-                  "cornerPref": "PREFER" | "AVOID" | "NONE",
-                  "preferQuiet": boolean
-                }
-                """;
+        String systemInstruction = getTagSystemInstruction(false);
 
         var root = objectMapper.createObjectNode();
         var genConfig = root.putObject("generationConfig");
@@ -163,31 +163,9 @@ public class AiPreferenceParser {
     }
 
     private String buildBatchPromptPayload(List<Reservation> reservations) throws IOException {
-        String systemInstruction = """
-                당신은 일본 호텔 PMS 객실 배정 지원 시스템입니다.
-                제공된 복수의 예약 요청 메모 목록을 각각 분석하여 아래 규격의 JSON 배열(List)로 반환하세요.
-                
-                [판단 규칙]
-                - reservationId: 원본 데이터의 예약 ID 그대로 유지
-                - floorPref: "HIGH" (고층, 전망), "LOW" (저층, 어르신/유아 동반, 보행 편의), "NONE"
-                - elevatorPref: "AWAY" (소음 기피, 안쪽 방), "NEAR" (엘베 인접, 동선 단축), "NONE"
-                - cornerPref: "PREFER" (코너/끝방 선호), "AVOID" (끝방 기피), "NONE"
-                - preferQuiet: true (소음 민감, 휴식 목적), false
-                
-                [출력 규격 예시]
-                [
-                  {
-                    "reservationId": "RSV-001",
-                    "floorPref": "HIGH",
-                    "elevatorPref": "AWAY",
-                    "cornerPref": "NONE",
-                    "preferQuiet": true
-                  }
-                ]
-                """;
+        String systemInstruction = getTagSystemInstruction(true);
 
         var root = objectMapper.createObjectNode();
-
         var genConfig = root.putObject("generationConfig");
         genConfig.put("response_mime_type", "application/json");
         genConfig.put("temperature", config.getTemperature());
@@ -218,32 +196,71 @@ public class AiPreferenceParser {
         return objectMapper.writeValueAsString(root);
     }
 
-    private GuestPreference extractPreferenceFromJson(String responseBody) throws IOException {
-        JsonNode root = objectMapper.readTree(responseBody);
-        JsonNode candidate = root.path("candidates").get(0);
-        String jsonText = candidate.path("content").path("parts").get(0).path("text").asText();
+    private String getTagSystemInstruction(boolean isBatch) {
+        String dynamicTagDictionary = tagRepository.buildPromptTagDictionary();
 
-        GeminiPreferenceDto dto = objectMapper.readValue(jsonText, GeminiPreferenceDto.class);
+        String format = isBatch ? """
+                [
+                  {
+                    "reservationId": "RSV-001",
+                    "preferredTags": ["HIGH_FLOOR", "VIEW_TOWER"],
+                    "avoidTags": ["NEAR_ELEVATOR"]
+                  }
+                ]
+                """ : """
+                {
+                  "preferredTags": ["HIGH_FLOOR", "VIEW_TOWER"],
+                  "avoidTags": ["NEAR_ELEVATOR"]
+                }
+                """;
+
+        return String.format("""
+                당신은 일본 호텔 PMS 객실 배정 지원 시스템입니다.
+                고객의 비정형 요청 메모(한국어, 일본어, 영어 등)를 분석하여
+                아래 관리자가 실시간 정의한 [객실 동적 태그 사전] 중에서
+                고객이 선호하는 태그(preferredTags)와 기피하는 태그(avoidTags)를 정확히 판별하세요.
+
+                [객실 동적 태그 사전 (관리자 실시간 등록)]
+                %s
+
+                [판단 원칙]
+                1. 고객 메모가 각 태그의 [설명]과 부합할 때만 해당 태그의 스위치를 켜세요.
+                2. 고객이 명시적으로 싫어하거나 피하고 싶어하는 조건은 avoidTags에 넣으세요.
+                3. 식음(F&B), 단순 인사 등 객실 물리 태그와 무관한 내용은 무시하고 빈 배열([])을 반환하세요.
+                4. 사전에 없는 태그 코드는 절대로 임의 생성하지 마세요.
+
+                [출력 JSON 규격]
+                %s
+                """, dynamicTagDictionary, format);
+    }
+
+    private TagPreference extractSingleTagPreferenceFromJson(String responseBody) throws IOException {
+        JsonNode root = objectMapper.readTree(responseBody);
+        String jsonText = root.path("candidates").get(0).path("content").path("parts").get(0).path("text").asText();
+        GeminiBatchTagDto dto = objectMapper.readValue(jsonText, GeminiBatchTagDto.class);
         return dto.toDomain();
     }
 
-    private Map<String, GuestPreference> extractBatchPreferencesFromJson(String responseBody) throws IOException {
+    private Map<String, TagPreference> extractBatchTagPreferencesFromJson(String responseBody) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
-        JsonNode candidate = root.path("candidates").get(0);
-        String jsonText = candidate.path("content").path("parts").get(0).path("text").asText();
+        String jsonText = root.path("candidates").get(0).path("content").path("parts").get(0).path("text").asText();
 
-        List<GeminiBatchPreferenceDto> dtoList = objectMapper.readValue(
+        List<GeminiBatchTagDto> dtoList = objectMapper.readValue(
                 jsonText,
                 new TypeReference<>() {}
         );
 
-        Map<String, GuestPreference> map = new HashMap<>();
-        for (GeminiBatchPreferenceDto dto : dtoList) {
+        Map<String, TagPreference> map = new HashMap<>();
+        for (GeminiBatchTagDto dto : dtoList) {
             if (dto.getReservationId() != null) {
                 map.put(dto.getReservationId(), dto.toDomain());
             }
         }
         return map;
+    }
+
+    public TagRepository getTagRepository() {
+        return tagRepository;
     }
 
     public AiModelConfig getConfig() {

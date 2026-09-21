@@ -10,8 +10,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -28,17 +30,19 @@ class ReservationServiceTest {
         reservationRepository = new ReservationRepository();
         roomRepository = new RoomRepository();
 
+        // [태그 지향 모의 AI 스텁] 요청 텍스트에 "고층"이 있으면 HIGH_FLOOR 태그 스위치를 켬
         AiPreferenceParser stubAiParser = new AiPreferenceParser(null, null) {
             @Override
-            public Map<String, GuestPreference> parseBatch(List<Reservation> reservations) {
-                GuestPreference pref = new GuestPreference(
-                        GuestPreference.FloorPref.HIGH,
-                        GuestPreference.ElevatorPref.AWAY,
-                        GuestPreference.CornerPref.PREFER,
-                        true
-                );
-                return reservations.stream()
-                        .collect(java.util.stream.Collectors.toMap(Reservation::getReservationId, r -> pref));
+            public Map<String, TagPreference> parseBatch(List<Reservation> reservations) {
+                Map<String, TagPreference> map = new HashMap<>();
+                for (Reservation r : reservations) {
+                    if (r.getRawRequestText() != null && r.getRawRequestText().contains("고층")) {
+                        map.put(r.getReservationId(), new TagPreference(Set.of("HIGH_FLOOR"), Set.of()));
+                    } else {
+                        map.put(r.getReservationId(), TagPreference.empty());
+                    }
+                }
+                return map;
             }
         };
 
@@ -78,7 +82,9 @@ class ReservationServiceTest {
         assertEquals(ReservationStatus.ASSIGNED, assignedR1.getStatus());
         assertNotNull(assignedR1.getAssignedRoomNumber());
         assertTrue(assignedR1.isAssigned());
-        assertEquals(GuestPreference.FloorPref.HIGH, assignedR1.getPreference().getFloorPref());
+
+        // [수정 포인트] 태그 지향 체계에 맞게 HIGH_FLOOR 태그 스위치가 켜졌는지 검증
+        assertTrue(assignedR1.getTagPreference().preferredTags().contains("HIGH_FLOOR"));
     }
 
     @Test
@@ -91,7 +97,6 @@ class ReservationServiceTest {
         reservationService.processCheckIn("RSV-CHECKIN-01");
 
         Reservation inHouseGuest = reservationRepository.findById("RSV-CHECKIN-01").orElseThrow();
-        // 실무 표준 상태: CHECKED_IN (키 수령 및 인하우스 투숙)
         assertEquals(ReservationStatus.CHECKED_IN, inHouseGuest.getStatus());
         assertTrue(inHouseGuest.getStatus().isInHouse());
     }
@@ -119,7 +124,6 @@ class ReservationServiceTest {
         String originRoom = beforeMove.getAssignedRoomNumber();
 
         StayPeriod period = new StayPeriod(today, 2);
-        // 이동 대상: 정비 완료 공실(VACANT) + 동일 타입 + 가용 스케줄
         Room targetRoom = roomRepository.findAll().stream()
                 .filter(room -> room.getRoomType() == RoomType.SUPERIOR_TWIN)
                 .filter(room -> !room.getRoomNumber().equals(originRoom))
@@ -141,7 +145,6 @@ class ReservationServiceTest {
     @Test
     @DisplayName("[5. 체크아웃 처리] 투숙 중 고객은 프론트 정산 완료 후 정상 퇴실(CHECKED_OUT)되며 객실은 OUT 상태로 전이된다")
     void processCheckOut_Success() {
-        // Given: 체크인 완료된 손님
         Reservation r1 = new Reservation("RSV-OUT-01", "Lee", RoomType.MODERATE_DOUBLE, today, 1, null, null);
         reservationService.receiveReservations(List.of(r1));
         reservationService.runDailyBatchAssignment(today);
@@ -150,16 +153,13 @@ class ReservationServiceTest {
         Reservation checkedIn = reservationRepository.findById("RSV-OUT-01").orElseThrow();
         String assignedRoom = checkedIn.getAssignedRoomNumber();
 
-        // When: 실무 정산 처리 후 체크아웃
         r1.getPaymentLedger().settle();
         reservationService.processCheckOut("RSV-OUT-01");
 
-        // Then
         Reservation checkedOut = reservationRepository.findById("RSV-OUT-01").orElseThrow();
         assertEquals(ReservationStatus.CHECKED_OUT, checkedOut.getStatus());
         assertFalse(checkedOut.getStatus().isInHouse());
 
-        // 실물 Room의 하우스키핑 상태가 OUT으로 전이되었는지 검증
         Room room = roomRepository.findByRoomNumber(assignedRoom).orElseThrow();
         assertEquals(RoomStatus.OUT, room.getStatus(), "체크아웃된 객실은 청소 대기(OUT) 상태여야 합니다.");
     }
@@ -174,7 +174,6 @@ class ReservationServiceTest {
         reservationService.runDailyBatchAssignment(today);
         reservationService.processCheckIn("RSV-SEARCH-01");
 
-        // 검색 조건: 실무 표준 입실 상태인 CHECKED_IN 필터링
         ReservationSearchCondition condition = new ReservationSearchCondition(
                 null, null, today, null, null, ReservationStatus.CHECKED_IN, null
         );
@@ -185,6 +184,7 @@ class ReservationServiceTest {
         assertEquals("RSV-SEARCH-01", results.get(0).getReservationId());
         assertEquals("Tanaka Kenji", results.get(0).getGuestName());
     }
+
     @Test
     @DisplayName("[배정 취소] 배정 완료된 예약의 배정을 취소하면 객실 스케줄이 즉시 반납되어 재배정 가능해진다")
     void cancelRoomAssignment_Success() {
@@ -196,19 +196,14 @@ class ReservationServiceTest {
         String roomNumber = assigned.getAssignedRoomNumber();
         Room room = roomRepository.findByRoomNumber(roomNumber).orElseThrow();
 
-        // 배정 직후: 점유 상태
         StayPeriod stayPeriod = new StayPeriod(today, 2);
         assertFalse(room.isAvailable(stayPeriod));
 
-        // When: 배정 취소 실행
         reservationService.cancelRoomAssignment("RSV-CANCEL-ASSIGN");
 
-        // Then: 예약 상태는 PENDING으로 환원되고 방 번호는 null
         Reservation unassigned = reservationRepository.findById("RSV-CANCEL-ASSIGN").orElseThrow();
         assertEquals(ReservationStatus.PENDING, unassigned.getStatus());
         assertNull(unassigned.getAssignedRoomNumber());
-
-        // 객실 스케줄이 회수되어 해당 기간에 다시 가용(available)해져야 함
         assertTrue(room.isAvailable(stayPeriod));
     }
 
@@ -226,14 +221,10 @@ class ReservationServiceTest {
         StayPeriod stayPeriod = new StayPeriod(today, 3);
         assertFalse(room.isAvailable(stayPeriod));
 
-        // When: 예약 취소 실행
         reservationService.cancelReservation("RSV-CANCEL-RES");
 
-        // Then: 예약 상태는 CANCELLED
         Reservation cancelled = reservationRepository.findById("RSV-CANCEL-RES").orElseThrow();
         assertEquals(ReservationStatus.CANCELLED, cancelled.getStatus());
-
-        // 객실 스케줄이 즉시 반납되어야 함
         assertTrue(room.isAvailable(stayPeriod));
     }
 }

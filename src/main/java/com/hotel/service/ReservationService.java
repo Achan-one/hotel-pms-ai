@@ -4,7 +4,7 @@ import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.service.dto.ReservationSearchCondition;
-import com.hotel.service.dto.RoomChangeRequest; // <-- 이 import문이 필수입니다.
+import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 import com.hotel.service.validator.ReservationValidator;
 
@@ -47,7 +47,7 @@ public class ReservationService {
 
     /**
      * [2. 당일 기준 일괄 AI 분석 및 우선순위 자동 배정]
-     * PENDING 예약 대상 단 1회 Gemini 호출 -> BatchAssigner 실행 -> ASSIGNED 갱신
+     * PENDING 예약 대상 단 1회 Gemini 호출 -> 동적 태그 선호도(TagPreference) 주입 -> BatchAssigner 실행 -> ASSIGNED 갱신
      */
     public BatchAssignmentResult runDailyBatchAssignment(LocalDate checkInDate) {
         Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
@@ -58,17 +58,17 @@ public class ReservationService {
             return new BatchAssignmentResult(List.of(), List.of());
         }
 
-        // 2. 단 1회의 Gemini API 호출로 메모 일괄 정제
-        Map<String, GuestPreference> parsedPreferences = aiParser.parseBatch(pendingList);
+        // 2. 단 1회의 Gemini API 호출로 메모로부터 태그 선호도(Map<String, TagPreference>) 일괄 추출
+        Map<String, TagPreference> parsedTagPreferences = aiParser.parseBatch(pendingList);
 
-        // 3. 선호도 주입
+        // 3. 파싱된 태그 선호도를 각 예약에 주입
         List<Reservation> enrichedList = new ArrayList<>();
         for (Reservation rsv : pendingList) {
-            GuestPreference pref = parsedPreferences.getOrDefault(rsv.getReservationId(), GuestPreference.empty());
-            enrichedList.add(rsv.withPreference(pref));
+            TagPreference tagPref = parsedTagPreferences.getOrDefault(rsv.getReservationId(), TagPreference.empty());
+            enrichedList.add(rsv.withTagPreference(tagPref));
         }
 
-        // 4. 우선순위 기반 일괄 배정 엔진 실행
+        // 4. 태그 및 조건 우선순위 기반 일괄 배정 엔진 실행
         BatchAssignmentResult result = batchAssigner.assignAll(enrichedList);
 
         // 5. 배정 성공한 예약들을 장부(ReservationRepository)에 저장 (상태: ASSIGNED)
@@ -105,7 +105,6 @@ public class ReservationService {
         RoomChangeResult result = roomChangeService.changeRoom(reservation, request);
 
         if (result.success()) {
-            // roomChangeService 내부에서 예약 호실 및 상태(ROOM_CHANGED)가 이미 전이되었으므로 저장소에만 반영
             reservationRepository.save(reservation);
         }
 
@@ -114,7 +113,6 @@ public class ReservationService {
 
     /**
      * 기존 2개 파라미터 호출 호환 편의 메서드
-     * - 체크인 날짜가 아닌 현재 운영 당일(LocalDate.now()) 기준으로 안전하게 남은 박수를 분할
      */
     public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
         Reservation reservation = findReservationOrThrow(reservationId);
@@ -125,7 +123,6 @@ public class ReservationService {
 
     /**
      * [5. 프론트 데스크 체크아웃]
-     * - 조기 체크아웃(Early Departure) 시 당일 이후의 미래 스케줄 자동 회수 및 OUT 상태 전이
      */
     public void processCheckOut(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
@@ -135,7 +132,6 @@ public class ReservationService {
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                // 조기 퇴실 시 오늘 이후로 잡혀있던 잔여 예약 구간을 즉시 잘라내어 공실로 환원
                 room.truncatePeriodFrom(LocalDate.now());
                 room.setStatus(RoomStatus.OUT);
             });
@@ -166,13 +162,12 @@ public class ReservationService {
 
     /**
      * [배정 취소 (Unassign)]
-     * 이미 배정된 객실의 투숙 스케줄을 회수하고 예약을 다시 PENDING(미배정) 상태로 전환
      */
     public void cancelRoomAssignment(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
 
         if (!reservation.isAssigned()) {
-            return; // 이미 미배정인 경우 무시
+            return;
         }
 
         if (reservation.getStatus().isInHouse()) {
@@ -182,21 +177,18 @@ public class ReservationService {
         String roomNumber = reservation.getAssignedRoomNumber();
         StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
 
-        // 1. 객실 스케줄 회수 및 락 해제
         if (roomNumber != null) {
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
                 room.cancelPeriod(stayPeriod);
             });
         }
 
-        // 2. 예약 도메인 상태 전이 (ASSIGNED -> PENDING)
         reservation.cancelAssignment();
         reservationRepository.save(reservation);
     }
 
     /**
      * [예약 취소 (Cancel)]
-     * 배정된 객실이 있다면 스케줄을 즉시 회수하고 예약을 CANCELLED 상태로 전환
      */
     public void cancelReservation(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
