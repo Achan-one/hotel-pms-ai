@@ -115,8 +115,17 @@ public class InMemoryReservationRepository implements ReservationRepository {
             LocalDate target = condition.stayingDate();
             stream = stream.filter(r -> {
                 if (r.getCheckInDate() == null) return false;
-                LocalDate checkOut = r.getCheckOutDate();
-                return !target.isBefore(r.getCheckInDate()) && target.isBefore(checkOut);
+
+                // 1. 취소된 예약은 재실 대상에서 완전 배제[cite: 5]
+                if (r.getStatus() == ReservationStatus.CANCELLED) return false;
+
+                // 2. [조기 퇴실 방어] 이미 체크아웃한 고객은 실제 퇴실일(actualCheckOutDate) 기준으로 유효 종료일 재조정[cite: 5]
+                LocalDate effectiveCheckOut = (r.getStatus() == ReservationStatus.CHECKED_OUT && r.getActualCheckOutDate() != null)
+                        ? r.getActualCheckOutDate()
+                        : r.getCheckOutDate();
+
+                // 3. 체류 구간 판정: checkInDate <= target < effectiveCheckOut[cite: 5]
+                return !target.isBefore(r.getCheckInDate()) && target.isBefore(effectiveCheckOut);
             });
         }
 
