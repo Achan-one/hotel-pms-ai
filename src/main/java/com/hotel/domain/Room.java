@@ -261,13 +261,41 @@ public class Room {
         }
     }
 
-    public void setStatus(RoomStatus status) {
+    /**
+     * 상태 전이 비즈니스 규칙 검증 및 반영 (동시성 락 보호)
+     */
+    public void setStatus(RoomStatus newStatus) {
+        Objects.requireNonNull(newStatus, "newStatus는 필수입니다.");
         lock.lock();
         try {
-            this.status = Objects.requireNonNull(status);
+            if (!this.status.canTransitionTo(newStatus)) {
+                throw new IllegalStateException(String.format(
+                        "[%s호] 허용되지 않는 상태 전이입니다: %s -> %s",
+                        roomNumber, this.status.getTitle(), newStatus.getTitle()
+                ));
+            }
+            this.status = newStatus;
         } finally {
             lock.unlock();
         }
+    }
+
+    // --- 하우스키핑 실무 캡슐화 전용 메서드 ---
+
+    public void markCheckOut() {
+        setStatus(RoomStatus.OUT);
+    }
+
+    public void startCleaning() {
+        setStatus(RoomStatus.CLEANING);
+    }
+
+    public void finishCleaning() {
+        setStatus(RoomStatus.VACANT);
+    }
+
+    public void markOutOfService(boolean isBreak) {
+        setStatus(isBreak ? RoomStatus.BREAK : RoomStatus.BLOCKED);
     }
 
     @Override

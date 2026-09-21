@@ -99,6 +99,10 @@ public class ReservationService {
         }
     }
 
+    /**
+     * 지정된 체크인 일자의 미배정(PENDING) 예약 건 일괄 자동 배정
+     * - 저장 실패 시 스케줄 즉시 회수 (보상 롤백 보장)
+     */
     public BatchAssignmentResult runDailyBatchAssignment(LocalDate checkInDate) {
         Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
         List<Reservation> pendingList = reservationRepository.findUnassignedByCheckInDate(checkInDate);
@@ -116,8 +120,23 @@ public class ReservationService {
 
         BatchAssignmentResult result = batchAssigner.assignAll(enrichedList);
 
+        // [원자성 보상 트랜잭션] 저장 실패 시 객실 스케줄 원상 복구
+        List<Reservation> successfullySaved = new ArrayList<>();
         for (Reservation success : result.getSuccessfulAssignments()) {
-            reservationRepository.save(success);
+            try {
+                reservationRepository.save(success);
+                successfullySaved.add(success);
+            } catch (Exception e) {
+                // 보상 트랜잭션: 저장 튕긴 예약의 객실 점유 즉시 반납
+                String roomNumber = success.getAssignedRoomNumber();
+                StayPeriod period = new StayPeriod(success.getCheckInDate(), success.getStayNights());
+                if (roomNumber != null) {
+                    roomRepository.findByRoomNumber(roomNumber).ifPresent(r -> r.cancelPeriod(period));
+                }
+                success.cancelAssignment();
+                System.err.printf("[보상 롤백 트리거] 예약 저장 실패로 객실 스케줄 회수 (%s, %s호): %s%n",
+                        success.getReservationId(), roomNumber, e.getMessage());
+            }
         }
 
         return result;
