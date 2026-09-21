@@ -8,6 +8,7 @@ import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
 import com.hotel.service.dto.AssignmentAlert;
 
+import java.time.LocalDate;
 import java.util.*;
 
 public class RoomAssigner {
@@ -43,7 +44,7 @@ public class RoomAssigner {
         TagPreference tagPref = reservation.getTagPreference();
         RoomType bookedType = reservation.getBookedRoomType();
 
-        // 1. 해당 기간 동일 타입 물리적 공실 추출
+        // 1. 해당 기간 동일 타입 물리적 공실 추출 (전체 구간 공실)
         List<Room> candidates = roomRepository.findAll().stream()
                 .filter(room -> room.isAvailable(targetPeriod))
                 .filter(room -> room.getRoomType() == bookedType)
@@ -53,14 +54,14 @@ public class RoomAssigner {
             return Optional.empty();
         }
 
-        // 2. [신규: 타입별 킵(Type Quota) 방어]
-        // 남은 물리적 공실이 관리자가 지정한 타입 킵 수량 이하이면 자동 배정을 차단(만실/보존 처리)
+        // 2. [논리 오류 수정] 타입별 킵 방어: 전체 연박 교집합이 아닌 '투숙 기간 각 일자별 최소 공실 수'를 검증
         int typeHoldQuota = quotaPolicy.getTypeHoldQuota(bookedType);
-        if (candidates.size() <= typeHoldQuota) {
+        long minDailyVacant = calculateMinDailyVacant(bookedType, reservation.getCheckInDate(), reservation.getStayNights());
+        if (minDailyVacant <= typeHoldQuota) {
             return Optional.empty();
         }
 
-        // 3. [태그별 킵(Tag Quota) 방어 필터링]
+        // 3. [태그별 킵 방어 필터링]
         List<Room> allocatableCandidates = candidates.stream()
                 .filter(room -> isRoomAllocatableUnderQuota(room, candidates, tagPref))
                 .toList();
@@ -85,7 +86,24 @@ public class RoomAssigner {
     }
 
     /**
-     * 고객이 요구한 HARD(필수) 태그 미충족 시, 단순 매진인지 쿼터 킵(Safety Quota) 때문인지 판별하여 경고 생성
+     * 특정 투숙 기간 동안 매일의 잔여 공실 중 가장 적은 날(병목 일자)의 공실 수를 계산
+     */
+    public long calculateMinDailyVacant(RoomType type, LocalDate checkIn, int nights) {
+        long minCount = Long.MAX_VALUE;
+        for (int i = 0; i < nights; i++) {
+            LocalDate day = checkIn.plusDays(i);
+            StayPeriod singleDay = new StayPeriod(day, 1);
+            long dailyVacant = roomRepository.findAll().stream()
+                    .filter(r -> r.getRoomType() == type)
+                    .filter(r -> r.isAvailable(singleDay))
+                    .count();
+            minCount = Math.min(minCount, dailyVacant);
+        }
+        return minCount == Long.MAX_VALUE ? 0 : minCount;
+    }
+
+    /**
+     * 고객이 요구한 HARD(필수) 태그 미충족 시, 단순 매진인지 쿼터 킵 때문인지 판별하여 경고 생성
      */
     public List<AssignmentAlert> checkHardRequestAlerts(Reservation reservation, Room assignedRoom) {
         if (reservation == null || assignedRoom == null) return List.of();
@@ -96,10 +114,10 @@ public class RoomAssigner {
         List<AssignmentAlert> alerts = new ArrayList<>();
         StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
 
-        // 당시 동일 타입 물리적 공실
+        // [논리 오류 수정] 방금 배정된 본인 방(assignedRoom)을 포함한 공실 후보군으로 계산하여 시점 오차 보정
         List<Room> physicalAvailableRooms = roomRepository.findAll().stream()
                 .filter(r -> r.getRoomType() == reservation.getBookedRoomType())
-                .filter(r -> r.isAvailable(targetPeriod))
+                .filter(r -> r.getRoomNumber().equals(assignedRoom.getRoomNumber()) || r.isAvailable(targetPeriod))
                 .toList();
 
         for (String requestedTagCode : tagPref.preferredTags()) {
@@ -222,6 +240,7 @@ public class RoomAssigner {
     public QuotaPolicy getQuotaPolicy() {
         return quotaPolicy;
     }
+
     public RoomRepository getRoomRepository() {
         return roomRepository;
     }

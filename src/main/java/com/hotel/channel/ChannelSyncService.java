@@ -23,6 +23,7 @@ public class ChannelSyncService {
 
     /**
      * 일자별 각 룸타입의 (물리 공실 - 킵 수량)을 계산하여 표준 ARI 데이터 생성
+     * [논리 오류 수정] 수리/점검(OOO) 방 및 해당 일자 스케줄 점유를 완벽히 제외한 실제 판매 가능 공실 산출
      */
     public List<ChannelInventorySyncDto> calculateDailySellableInventory(LocalDate targetDate) {
         List<ChannelInventorySyncDto> results = new ArrayList<>();
@@ -31,7 +32,8 @@ public class ChannelSyncService {
         for (RoomType type : RoomType.values()) {
             long physicalVacant = roomRepository.findAll().stream()
                     .filter(r -> r.getRoomType() == type)
-                    .filter(r -> r.isAvailable(singleDay))
+                    .filter(r -> !r.getStatus().isOutOfService()) // 고장/점검 객실 제외
+                    .filter(r -> r.isAvailable(singleDay))         // 스케줄 충돌 없는 방
                     .count();
 
             int holdQuota = quotaPolicy.getTypeHoldQuota(type);
@@ -53,9 +55,6 @@ public class ChannelSyncService {
         return results;
     }
 
-    /**
-     * 주입된 채널 어댑터를 이용해 최종 전송 전문 생성
-     */
     public String buildChannelPayload(ChannelManagerAdapter adapter, LocalDate targetDate) {
         List<ChannelInventorySyncDto> syncData = calculateDailySellableInventory(targetDate);
         return adapter.serializeInventoryUpdate(syncData);
