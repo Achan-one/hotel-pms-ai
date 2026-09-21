@@ -81,4 +81,24 @@ class ChannelManagerAdapterTest {
         assertTrue(json.contains("\"sellable\": 3"));
         assertTrue(json.contains("\"price\": 28000"));
     }
+    @Test
+    @DisplayName("[TLX Inbound 취소] 린칸에서 취소 전문 수신 시 CANCEL 요청으로 식별되어야 한다")
+    void tlx_ParseIncomingCancel_Success() {
+        TlxChannelAdapter adapter = new TlxChannelAdapter();
+        String cancelXml = """
+                <TL_Reservations>
+                  <Reservation>
+                    <ReservationId>TLX-CANCEL-101</ReservationId>
+                    <TransactionType>CANCEL</TransactionType>
+                  </Reservation>
+                </TL_Reservations>
+                """;
+
+        var requests = adapter.parseIncomingRequests(cancelXml);
+
+        assertEquals(1, requests.size());
+        var req = requests.get(0);
+        assertEquals(com.hotel.channel.dto.ChannelReservationRequest.ActionType.CANCEL, req.actionType());
+        assertEquals("TLX-CANCEL-101", req.reservationId());
+    }
 }

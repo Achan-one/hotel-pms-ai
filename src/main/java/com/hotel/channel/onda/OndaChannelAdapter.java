@@ -2,6 +2,7 @@ package com.hotel.channel.onda;
 
 import com.hotel.channel.ChannelManagerAdapter;
 import com.hotel.channel.dto.ChannelInventorySyncDto;
+import com.hotel.channel.dto.ChannelReservationRequest;
 import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.RoomType;
@@ -12,9 +13,6 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * 한국 시장 ONDA Hub REST/JSON 웹훅 전문 처리 어댑터
- */
 public class OndaChannelAdapter implements ChannelManagerAdapter {
 
     @Override
@@ -23,10 +21,10 @@ public class OndaChannelAdapter implements ChannelManagerAdapter {
     }
 
     @Override
-    public List<Reservation> parseIncomingReservations(String jsonPayload) {
+    public List<ChannelReservationRequest> parseIncomingRequests(String jsonPayload) {
         if (jsonPayload == null || jsonPayload.isBlank()) return List.of();
 
-        List<Reservation> reservations = new ArrayList<>();
+        List<ChannelReservationRequest> requests = new ArrayList<>();
         Pattern itemPattern = Pattern.compile("\\{(.*?)\\}", Pattern.DOTALL);
         Matcher matcher = itemPattern.matcher(jsonPayload);
 
@@ -35,6 +33,15 @@ public class OndaChannelAdapter implements ChannelManagerAdapter {
             if (!block.contains("reservationId")) continue;
 
             String rsvId = extractJsonValue(block, "reservationId");
+            String action = extractJsonValue(block, "action");
+            String status = extractJsonValue(block, "status");
+
+            // 취소 웹훅 인입 판정
+            if ("CANCEL".equalsIgnoreCase(action) || "CANCELLED".equalsIgnoreCase(status)) {
+                requests.add(ChannelReservationRequest.cancel(rsvId));
+                continue;
+            }
+
             String guestName = extractJsonValue(block, "guestName");
             String roomTypeStr = extractJsonValue(block, "roomType");
             String checkInStr = extractJsonValue(block, "checkInDate");
@@ -53,12 +60,13 @@ public class OndaChannelAdapter implements ChannelManagerAdapter {
             LocalDate checkIn = LocalDate.parse(checkInStr);
             int nights = Integer.parseInt(nightsStr);
 
-            reservations.add(new Reservation(
+            Reservation rsv = new Reservation(
                     rsvId, guestName, roomType, checkIn, nights, note, GuestPreference.empty()
-            ));
+            );
+            requests.add(ChannelReservationRequest.booking(rsv));
         }
 
-        return reservations;
+        return requests;
     }
 
     @Override
