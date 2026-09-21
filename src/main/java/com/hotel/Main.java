@@ -10,6 +10,9 @@ import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
+import com.hotel.repository.memory.InMemoryReservationRepository;
+import com.hotel.repository.memory.InMemoryRoomRepository;
+import com.hotel.repository.memory.InMemoryTagRepository;
 import com.hotel.service.*;
 import com.hotel.service.dto.AssignmentAlert;
 import com.hotel.service.dto.FloorMapResponseDto;
@@ -21,18 +24,15 @@ import java.time.LocalDate;
 import java.util.*;
 
 /**
- * AI Hotel PMS Core Engine 통합 시뮬레이션 엔트리포인트.
- *
- * <p>CMS 인바운드 예약/취소, 쿼터 방어 일괄 배정, 아웃바운드 ARI Push,
- * 룸 랙 테이블 매트릭스 렌더링 파이프라인을 실행합니다.</p>
+ * AI Hotel PMS Core Engine 통합 시뮬레이션 엔트리포인트 (임시 검증 러너).
  */
 public class Main {
 
     public static void main(String[] args) {
-        // 1. 인프라 및 저장소 초기화
-        TagRepository tagRepository = new TagRepository();
-        RoomRepository roomRepository = new RoomRepository();
-        ReservationRepository reservationRepository = new ReservationRepository();
+        // 1. 인프라 및 저장소 인터페이스 기반 인스턴스화
+        TagRepository tagRepository = new InMemoryTagRepository();
+        RoomRepository roomRepository = new InMemoryRoomRepository();
+        ReservationRepository reservationRepository = new InMemoryReservationRepository();
 
         // 2. 통합 쿼터 정책 (타입 킵: 이그제큐티브 1실, 트윈 2실, 레지덴셜 2실 / 태그 킵: 타워뷰 2실, 배리어프리 1실)
         QuotaPolicy quotaPolicy = new QuotaPolicy();
@@ -47,7 +47,6 @@ public class Main {
         );
         FloorStatusService floorStatusService = new FloorStatusService(roomRepository);
 
-        // 채널 매니저 동기화 서비스 및 어댑터 초기화
         ChannelSyncService channelSyncService = new ChannelSyncService(roomRepository, quotaPolicy);
         ChannelManagerAdapter tlxAdapter = new TlxChannelAdapter();
         ChannelManagerAdapter ondaAdapter = new OndaChannelAdapter();
@@ -60,7 +59,6 @@ public class Main {
         System.out.println("   AI 엔진 설정: " + aiParser.getConfig());
         System.out.println("==========================================================================================================\n");
 
-        // [신규] 태그 생성 및 매핑 가이드 섹션 출력
         printTagRegistrationGuide(tagRepository);
 
         System.out.println("🛡️ [호텔 관리자 정의 운영 보존 쿼터 (Safety Stock Hold)]");
@@ -78,11 +76,10 @@ public class Main {
         System.out.printf("📌 [초기 객실 상태] 기존 투숙: %d실 / 배정 가능 공실: %d실%n%n",
                 preOccupied, 191 - preOccupied);
 
-        // 5. [인바운드 1단계: 외부 CMS 신규 예약 인입 시뮬레이션]
+        // 5. 인바운드 1단계: 외부 CMS 신규 예약 인입 시뮬레이션
         System.out.println("📥 [채널 매니저(CMS) 외부 신규 예약 인바운드 수신]");
         System.out.println("----------------------------------------------------------------------------------------------------------");
 
-        // (1) 일본 TL-Lincoln(XML) 예약 전문 수신
         String incomingTlxXml = """
                 <TL_Reservations>
                   <Reservation>
@@ -101,7 +98,6 @@ public class Main {
                 tlxRequests.size(), tlxRes.getReservationId(), tlxRes.getGuestName(),
                 tlxRes.getBookedRoomType(), tlxRes.getStayNights());
 
-        // (2) 한국 ONDA Hub(JSON) 웹훅 예약 전문 수신
         String incomingOndaJson = """
                 {
                   "channel": "ONDA_HUB",
@@ -123,7 +119,6 @@ public class Main {
                 ondaRequests.size(), ondaRes.getReservationId(), ondaRes.getGuestName(),
                 ondaRes.getBookedRoomType(), ondaRes.getStayNights());
 
-        // CMS 인입 2건 + 일반 가상 예약 48건 = 총 50건 수신
         List<Reservation> allIncoming = new ArrayList<>();
         allIncoming.add(tlxRes);
         allIncoming.add(ondaRes);
@@ -142,7 +137,7 @@ public class Main {
         System.out.println(assignmentResult.toSummaryString());
         System.out.println();
 
-        // 7. 배정 실패 건 리포트 (만실 / 타입별 킵 방어)
+        // 7. 배정 실패 건 리포트
         var failedItems = assignmentResult.getFailedAssignments();
         if (!failedItems.isEmpty()) {
             System.out.println("==========================================================================================================");
@@ -222,7 +217,7 @@ public class Main {
             }
         }
 
-        // 10. TL-Lincoln 인바운드 취소 전문 수신 및 스케줄 공실 회수 시뮬레이션
+        // 10. TL-Lincoln 인바운드 취소 전문 수신 및 스케줄 회수 시뮬레이션
         System.out.println("==========================================================================================================");
         System.out.println("🚫 [채널 매니저(CMS) 실시간 취소 웹훅 인입 & 스케줄 자동 회수 시뮬레이션]");
         System.out.println("==========================================================================================================");
@@ -262,7 +257,7 @@ public class Main {
                 freedRoom.getRoomNumber(), freedRoom.isAvailable(yamadaStayPeriod) ? "배정 가능 (VACANT)" : "점유 중");
         System.out.println("----------------------------------------------------------------------------------------------------------\n");
 
-        // 11. [아웃바운드: 취소분 환원 반영 판매 가능 잔여 재고(ARI Push) 산출]
+        // 11. 취소분 환원 반영 판매 가능 잔여 재고(ARI Push) 산출
         System.out.println("==========================================================================================================");
         System.out.println("📡 [채널 매니저(CMS) 아웃바운드: 취소분 환원 반영 판매 가능 잔여 재고(ARI Push)]");
         System.out.println("==========================================================================================================");
@@ -281,7 +276,7 @@ public class Main {
         }
         System.out.println("----------------------------------------------------------------------------------------------------------\n");
 
-        // 12. [개편] 콘솔 친화적 191실 전 객실 룸 랙 아스키 테이블 출력
+        // 12. 콘솔 룸 랙 테이블 출력
         FloorMapResponseDto matrixReport = floorStatusService.getFloorMatrix(today, reservationService.searchReservations(null));
         printFloorMapTable(matrixReport);
 
@@ -294,9 +289,6 @@ public class Main {
         System.out.println("==========================================================================================================");
     }
 
-    /**
-     * 호텔 관리자를 위한 동적 태그 등록 가이드 및 전체 태그 카탈로그를 표 형식으로 출력합니다.
-     */
     private static void printTagRegistrationGuide(TagRepository tagRepository) {
         System.out.println("📖 [태그 등록 시스템 가이드 (Tag Registration & Mapping Guide)]");
         System.out.println("----------------------------------------------------------------------------------------------------------");
@@ -335,9 +327,6 @@ public class Main {
         System.out.println("----------------------------------------------------------------------------------------------------------\n");
     }
 
-    /**
-     * 191개 전체 객실 매트릭스를 콘솔에서 한눈에 보기 편한 층별 테이블로 렌더링합니다.
-     */
     private static void printFloorMapTable(FloorMapResponseDto dto) {
         System.out.println("==========================================================================================================");
         System.out.printf("📊 [191실 전 객실 룸 랙 현황 매트릭스 테이블] 기준일자: %s%n", dto.targetDate());
@@ -444,7 +433,7 @@ public class Main {
                 "静かに過ごしたいので、エレベーターから離れた高層階の部屋をお願いします。",
                 "High floor with a nice Tokyo Tower view please!",
                 "결혼기념일 여행이라 야경 좋은 방이나 아로마 힐링되는 방 희망합니다.",
-                "足が不自由なため、できるだけ低層階かつエレベーター近くの部屋が希望です。",
+                "足が不自由なため、できるだけ低層階かつエレベーター近くの部屋が希望です.",
                 "Baby sleeping, very quiet room needed away from lift noise.",
                 "야간 근무 후 쉬러 갑니다. 조용한 안쪽 방으로 주세요.",
                 "도쿄타워 보이는 방으로 꼭 부탁드립니다.",
