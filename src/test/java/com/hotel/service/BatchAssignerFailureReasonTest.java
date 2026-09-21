@@ -27,8 +27,8 @@ class BatchAssignerFailureReasonTest {
 
     @BeforeEach
     void setUp() {
-        roomRepository = new RoomRepository();
-        tagRepository = new TagRepository();
+        roomRepository =new com.hotel.repository.memory.InMemoryRoomRepository();
+        tagRepository = new com.hotel.repository.memory.InMemoryTagRepository();
         quotaPolicy = new QuotaPolicy();
         roomAssigner = new RoomAssigner(roomRepository, tagRepository, quotaPolicy);
         batchAssigner = new BatchAssigner(roomAssigner);

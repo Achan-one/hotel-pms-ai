@@ -25,7 +25,7 @@ class FloorStatusServiceTest {
 
     @BeforeEach
     void setUp() {
-        roomRepository = new RoomRepository();
+        roomRepository = new com.hotel.repository.memory.InMemoryRoomRepository();
         floorStatusService = new FloorStatusService(roomRepository);
     }
 

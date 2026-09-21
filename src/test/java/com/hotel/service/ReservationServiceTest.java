@@ -27,8 +27,8 @@ class ReservationServiceTest {
 
     @BeforeEach
     void setUp() {
-        reservationRepository = new ReservationRepository();
-        roomRepository = new RoomRepository();
+        reservationRepository = new com.hotel.repository.memory.InMemoryReservationRepository();
+        roomRepository = new com.hotel.repository.memory.InMemoryRoomRepository();
 
         // [태그 지향 모의 AI 스텁] 요청 텍스트에 "고층"이 있으면 HIGH_FLOOR 태그 스위치를 켬
         AiPreferenceParser stubAiParser = new AiPreferenceParser(null, null) {

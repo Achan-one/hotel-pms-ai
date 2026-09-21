@@ -2,6 +2,7 @@ package com.hotel.repository;
 
 import com.hotel.domain.Room;
 import com.hotel.domain.RoomType;
+import com.hotel.repository.memory.InMemoryRoomRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,8 @@ class RoomRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        repository = new RoomRepository();
+        // 인터페이스 타입 변수에 InMemory 구현체 주입
+        repository = new InMemoryRoomRepository();
     }
 
     @Test

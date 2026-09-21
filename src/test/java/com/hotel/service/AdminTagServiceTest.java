@@ -19,7 +19,7 @@ class AdminTagServiceTest {
 
     @BeforeEach
     void setUp() {
-        tagRepository = new TagRepository();
+        tagRepository = new com.hotel.repository.memory.InMemoryTagRepository();
         quotaPolicy = new QuotaPolicy();
         adminTagService = new AdminTagService(tagRepository, quotaPolicy);
     }

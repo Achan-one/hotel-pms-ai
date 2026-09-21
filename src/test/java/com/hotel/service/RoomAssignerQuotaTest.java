@@ -23,7 +23,7 @@ class RoomAssignerQuotaTest {
 
     @BeforeEach
     void setUp() {
-        roomRepository = new RoomRepository();
+        roomRepository = new com.hotel.repository.memory.InMemoryRoomRepository();
         // QuotaPolicy는 기본 상수로 초기화됨:
         // (타입 킵: 이그제큐티브 1, 트윈 2, 레지덴셜 2 / 태그 킵: 타워뷰 2, 배리어프리 1)
         quotaPolicy = new QuotaPolicy();

@@ -21,7 +21,7 @@ class RoomChangeServiceTest {
 
     @BeforeEach
     void setUp() {
-        roomRepository = new RoomRepository();
+        roomRepository = new com.hotel.repository.memory.InMemoryRoomRepository();
         roomChangeService = new RoomChangeService(roomRepository);
     }
 

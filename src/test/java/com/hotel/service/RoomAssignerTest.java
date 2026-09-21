@@ -25,7 +25,7 @@ class RoomAssignerTest {
 
     @BeforeEach
     void setUp() {
-        repository = new RoomRepository();
+        repository = new com.hotel.repository.memory.InMemoryRoomRepository();
         assigner = new RoomAssigner(repository);
     }
 

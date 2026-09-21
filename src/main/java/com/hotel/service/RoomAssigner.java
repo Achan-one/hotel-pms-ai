@@ -6,6 +6,7 @@ import com.hotel.domain.GuestPreference.ElevatorPref;
 import com.hotel.domain.GuestPreference.FloorPref;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
+import com.hotel.repository.memory.InMemoryTagRepository;
 import com.hotel.service.dto.AssignmentAlert;
 
 import java.time.LocalDate;
@@ -19,16 +20,16 @@ public class RoomAssigner {
     private final QuotaPolicy quotaPolicy;
 
     public RoomAssigner(RoomRepository roomRepository) {
-        this(roomRepository, new TagRepository(), new QuotaPolicy());
+        this(roomRepository, new InMemoryTagRepository(), new QuotaPolicy());
     }
 
     public RoomAssigner(RoomRepository roomRepository, QuotaPolicy quotaPolicy) {
-        this(roomRepository, new TagRepository(), quotaPolicy);
+        this(roomRepository, new InMemoryTagRepository(), quotaPolicy);
     }
 
     public RoomAssigner(RoomRepository roomRepository, TagRepository tagRepository, QuotaPolicy quotaPolicy) {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
-        this.tagRepository = (tagRepository != null) ? tagRepository : new TagRepository();
+        this.tagRepository = (tagRepository != null) ? tagRepository : new InMemoryTagRepository();
         this.quotaPolicy = (quotaPolicy != null) ? quotaPolicy : new QuotaPolicy();
         this.tagScoringEngine = new TagScoringEngine();
     }
@@ -44,7 +45,7 @@ public class RoomAssigner {
         TagPreference tagPref = reservation.getTagPreference();
         RoomType bookedType = reservation.getBookedRoomType();
 
-        // 1. 해당 기간 동일 타입 물리적 공실 추출 (전체 구간 공실)
+        // 1. 해당 기간 동일 타입 물리적 공실 추출
         List<Room> candidates = roomRepository.findAll().stream()
                 .filter(room -> room.isAvailable(targetPeriod))
                 .filter(room -> room.getRoomType() == bookedType)
@@ -54,14 +55,14 @@ public class RoomAssigner {
             return Optional.empty();
         }
 
-        // 2. [논리 오류 수정] 타입별 킵 방어: 전체 연박 교집합이 아닌 '투숙 기간 각 일자별 최소 공실 수'를 검증
+        // 2. 타입별 킵 방어: 일자별 최소 병목 공실 수 검증
         int typeHoldQuota = quotaPolicy.getTypeHoldQuota(bookedType);
         long minDailyVacant = calculateMinDailyVacant(bookedType, reservation.getCheckInDate(), reservation.getStayNights());
         if (minDailyVacant <= typeHoldQuota) {
             return Optional.empty();
         }
 
-        // 3. [태그별 킵 방어 필터링]
+        // 3. 태그별 킵 방어 필터링
         List<Room> allocatableCandidates = candidates.stream()
                 .filter(room -> isRoomAllocatableUnderQuota(room, candidates, tagPref))
                 .toList();
@@ -86,7 +87,7 @@ public class RoomAssigner {
     }
 
     /**
-     * 특정 투숙 기간 동안 매일의 잔여 공실 중 가장 적은 날(병목 일자)의 공실 수를 계산
+     * 특정 투숙 기간 동안 매일의 잔여 공실 중 가장 적은 날(병목 일자)의 공실 수 계산
      */
     public long calculateMinDailyVacant(RoomType type, LocalDate checkIn, int nights) {
         long minCount = Long.MAX_VALUE;
@@ -103,7 +104,7 @@ public class RoomAssigner {
     }
 
     /**
-     * 고객이 요구한 HARD(필수) 태그 미충족 시, 단순 매진인지 쿼터 킵 때문인지 판별하여 경고 생성
+     * 고객이 요구한 HARD(필수) 태그 미충족 시 사유 판별하여 Alert 생성
      */
     public List<AssignmentAlert> checkHardRequestAlerts(Reservation reservation, Room assignedRoom) {
         if (reservation == null || assignedRoom == null) return List.of();
@@ -114,7 +115,6 @@ public class RoomAssigner {
         List<AssignmentAlert> alerts = new ArrayList<>();
         StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
 
-        // [논리 오류 수정] 방금 배정된 본인 방(assignedRoom)을 포함한 공실 후보군으로 계산하여 시점 오차 보정
         List<Room> physicalAvailableRooms = roomRepository.findAll().stream()
                 .filter(r -> r.getRoomType() == reservation.getBookedRoomType())
                 .filter(r -> r.getRoomNumber().equals(assignedRoom.getRoomNumber()) || r.isAvailable(targetPeriod))

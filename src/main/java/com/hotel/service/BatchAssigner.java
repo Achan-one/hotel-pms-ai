@@ -6,6 +6,7 @@ import com.hotel.domain.Room;
 import com.hotel.domain.RoomType;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
+import com.hotel.repository.memory.InMemoryTagRepository;
 import com.hotel.service.dto.AssignmentAlert;
 
 import java.util.ArrayList;
@@ -30,7 +31,7 @@ public class BatchAssigner {
     }
 
     public BatchAssigner(RoomRepository roomRepository, QuotaPolicy quotaPolicy) {
-        this(new RoomAssigner(roomRepository, new TagRepository(), quotaPolicy));
+        this(new RoomAssigner(roomRepository, new InMemoryTagRepository(), quotaPolicy));
     }
 
     public BatchAssigner(RoomRepository roomRepository, TagRepository tagRepository, QuotaPolicy quotaPolicy) {
@@ -60,7 +61,6 @@ public class BatchAssigner {
                 alerts.addAll(roomAlerts);
             } else {
                 RoomType bookedType = reservation.getBookedRoomType();
-                // [논리 오류 수정] 일자별 병목 공실 기준으로 쿼터 차단 여부 판정
                 long minDailyVacant = roomAssigner.calculateMinDailyVacant(
                         bookedType, reservation.getCheckInDate(), reservation.getStayNights()
                 );

@@ -4,6 +4,7 @@ import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.ReservationStatus;
 import com.hotel.domain.RoomType;
+import com.hotel.repository.memory.InMemoryReservationRepository;
 import com.hotel.service.dto.ReservationSearchCondition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,7 +24,8 @@ class ReservationRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        repository = new ReservationRepository();
+        // 인터페이스 타입 변수에 InMemory 구현체 주입
+        repository = new InMemoryReservationRepository();
 
         // 테스트 기본 픽스처 4건 적재
         Reservation r1 = new Reservation("RSV-001", "Tanaka Kenji", RoomType.MODERATE_DOUBLE, sep20, 2, "고층 희망", GuestPreference.empty());
@@ -60,7 +62,6 @@ class ReservationRepositoryTest {
     @Test
     @DisplayName("특정 체크인 날짜의 미배정(PENDING) 예약만 정확히 필터링 검증")
     void findUnassignedByCheckInDate_Success() {
-        // 9/20 예약 3건 중 r2(RSV-002)는 ASSIGNED 상태이므로 PENDING은 2건이어야 함
         List<Reservation> unassignedList = repository.findUnassignedByCheckInDate(sep20);
 
         assertEquals(2, unassignedList.size());
@@ -81,7 +82,6 @@ class ReservationRepositoryTest {
     @Test
     @DisplayName("다조건 동적 검색(search): 체크인 날짜 + 박수 + 상태 복합 조건 필터링 검증")
     void search_ComplexCondition_Success() {
-        // 조건: 9/20 체크인 + 2박 + PENDING 상태
         ReservationSearchCondition condition = new ReservationSearchCondition(
                 null, null, sep20, 2, null, ReservationStatus.PENDING, null
         );
@@ -118,14 +118,14 @@ class ReservationRepositoryTest {
         assertEquals(ReservationStatus.CHECKED_OUT, res.getStatus());
         assertFalse(res.getStatus().isInHouse());
     }
+
     @Test
     @DisplayName("[재실 검색] stayingDate 기준으로 해당 날짜에 숙박 중인 연박 고객들을 정확히 조회해야 한다")
     void search_ByStayingDate_Success() {
-        // 9/20에 체크인해서 2박 머무는 RSV-001은 9/21에도 투숙 중이어야 함
         ReservationSearchCondition condition = ReservationSearchCondition.byStayingDate(sep21);
         List<Reservation> results = repository.search(condition);
 
         assertTrue(results.stream().anyMatch(r -> r.getReservationId().equals("RSV-001")));
-        assertTrue(results.stream().anyMatch(r -> r.getReservationId().equals("RSV-002"))); // 3박 예약
+        assertTrue(results.stream().anyMatch(r -> r.getReservationId().equals("RSV-002")));
     }
 }

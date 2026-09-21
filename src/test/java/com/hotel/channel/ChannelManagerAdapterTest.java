@@ -26,7 +26,7 @@ class ChannelManagerAdapterTest {
 
     @BeforeEach
     void setUp() {
-        roomRepository = new RoomRepository();
+        roomRepository = new com.hotel.repository.memory.InMemoryRoomRepository();
         quotaPolicy = new QuotaPolicy(); // 기본 킵: 이그제큐티브 1실, 트윈 2실, 레지덴셜 2실
         syncService = new ChannelSyncService(roomRepository, quotaPolicy);
     }

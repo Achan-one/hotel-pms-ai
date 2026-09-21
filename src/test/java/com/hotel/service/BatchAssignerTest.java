@@ -24,7 +24,7 @@ class BatchAssignerTest {
 
     @BeforeEach
     void setUp() {
-        repository = new RoomRepository();
+        repository = new com.hotel.repository.memory.InMemoryRoomRepository();
         RoomAssigner roomAssigner = new RoomAssigner(repository);
         batchAssigner = new BatchAssigner(roomAssigner);
     }

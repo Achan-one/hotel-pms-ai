@@ -7,6 +7,7 @@ import com.hotel.config.AiModelConfig;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.TagPreference;
 import com.hotel.repository.TagRepository;
+import com.hotel.repository.memory.InMemoryTagRepository;
 import com.hotel.service.dto.GeminiBatchTagDto;
 import com.hotel.util.EnvLoader;
 
@@ -32,12 +33,12 @@ public class AiPreferenceParser {
     private final ObjectMapper objectMapper;
 
     // ==========================================
-    // 1. 생성자 오버로딩 (모든 호출부 호환 보장)
+    // 1. 생성자 오버로딩 (구현체 InMemoryTagRepository 위임)
     // ==========================================
 
     // [호환 1] Main, ReservationService 기본 생성자 호출부
     public AiPreferenceParser() {
-        this(new TagRepository(), EnvLoader.get("GEMINI_API_KEY"), AiModelConfig.fromEnvOrDefault());
+        this(new InMemoryTagRepository(), EnvLoader.get("GEMINI_API_KEY"), AiModelConfig.fromEnvOrDefault());
     }
 
     // [호환 2] TagRepository 단독 주입 생성자
@@ -47,12 +48,12 @@ public class AiPreferenceParser {
 
     // [호환 3] ReservationServiceTest 가짜 스텁(Stub) 주입 생성자
     public AiPreferenceParser(String apiKey, AiModelConfig config) {
-        this(new TagRepository(), apiKey, config);
+        this(new InMemoryTagRepository(), apiKey, config);
     }
 
     // [마스터 생성자] 모든 의존성 주입 기준점
     public AiPreferenceParser(TagRepository tagRepository, String apiKey, AiModelConfig config) {
-        this.tagRepository = (tagRepository != null) ? tagRepository : new TagRepository();
+        this.tagRepository = (tagRepository != null) ? tagRepository : new InMemoryTagRepository();
         this.apiKey = apiKey;
         this.config = (config != null) ? config : AiModelConfig.fromEnvOrDefault();
         this.httpClient = HttpClient.newBuilder()

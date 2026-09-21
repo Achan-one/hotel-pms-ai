@@ -1,53 +1,20 @@
 package com.hotel.repository;
 
 import com.hotel.domain.RoomTag;
-import com.hotel.domain.TagStrictness;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
+import java.util.Optional;
 
-public class TagRepository {
+/**
+ * 객실 태그 카탈로그 및 AI 프롬프트 사전 생성을 위한 표준 저장소 인터페이스.
+ */
+public interface TagRepository {
 
-    private final Map<String, RoomTag> tagStore = new ConcurrentHashMap<>();
+    void save(RoomTag tag);
 
-    public TagRepository() {
-        initDefaultTags();
-    }
+    Optional<RoomTag> findByCode(String code);
 
-    public void save(RoomTag tag) {
-        Objects.requireNonNull(tag, "저장할 태그는 null일 수 없습니다.");
-        tagStore.put(tag.code().toUpperCase(), tag);
-    }
+    List<RoomTag> findAll();
 
-    public Optional<RoomTag> findByCode(String code) {
-        if (code == null) return Optional.empty();
-        return Optional.ofNullable(tagStore.get(code.trim().toUpperCase()));
-    }
-
-    public List<RoomTag> findAll() {
-        return new ArrayList<>(tagStore.values());
-    }
-
-    public String buildPromptTagDictionary() {
-        if (tagStore.isEmpty()) {
-            return "(등록된 태그 없음)";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (RoomTag tag : tagStore.values()) {
-            sb.append(String.format("- %s: %s (분류: %s | 엄격도: %s | 설명: %s, 기본점수: %d점)\n",
-                    tag.code(), tag.name(), tag.category().getDesc(), tag.strictness().getTitle(),
-                    tag.description(), tag.defaultWeight()));
-        }
-        return sb.toString();
-    }
-
-    private void initDefaultTags() {
-        save(RoomTag.HIGH_FLOOR);
-        save(RoomTag.LOW_FLOOR);
-        save(RoomTag.NEAR_ELEVATOR);
-        save(RoomTag.AWAY_FROM_ELEVATOR);
-        save(RoomTag.CORNER_ROOM);
-        save(RoomTag.QUIET_ZONE);
-    }
+    String buildPromptTagDictionary();
 }
