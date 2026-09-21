@@ -69,12 +69,18 @@ public class RoomChangeService {
         int remainingNights = (int) ChronoUnit.DAYS.between(moveDate, checkOutDate);
         StayPeriod remainingPeriod = (remainingNights > 0) ? new StayPeriod(moveDate, remainingNights) : null;
 
-        if (remainingPeriod != null && !targetRoom.isAvailable(remainingPeriod)) {
-            return RoomChangeResult.failure(reservation.getReservationId(),
-                    String.format("대상 객실(%s)은 해당 잔여 투숙 기간(%s)에 이미 다른 예약이 존재합니다.",
-                            targetRoomNumber, remainingPeriod));
+        // [동시성 원자적 선점 보장]
+        // 기존 객실을 훼손하기 전에, 신규 객실에 대한 점유를 먼저 원자적으로 시도(tryBookPeriod)합니다.
+        if (remainingPeriod != null) {
+            boolean booked = targetRoom.tryBookPeriod(remainingPeriod);
+            if (!booked) {
+                return RoomChangeResult.failure(reservation.getReservationId(),
+                        String.format("대상 객실(%s호)은 해당 잔여 기간(%s)에 이미 다른 예약이 점유하여 배정할 수 없습니다.",
+                                targetRoomNumber, remainingPeriod));
+            }
         }
 
+        // 신규 객실 점유 성공 확정 후, 비로소 기존 객실의 잔여 스케줄 단축 및 청소대기(OUT) 전이
         if (originRoomNumber != null) {
             roomRepository.findByRoomNumber(originRoomNumber.trim()).ifPresent(originRoom -> {
                 originRoom.truncatePeriodFrom(moveDate);
@@ -82,11 +88,8 @@ public class RoomChangeService {
             });
         }
 
-        if (remainingPeriod != null) {
-            targetRoom.bookPeriod(remainingPeriod);
-        }
+        // 신규 객실 상태 재실(OCCUPIED) 확정 및 예약 호실 번호 최신화
         targetRoom.setStatus(RoomStatus.OCCUPIED);
-
         reservation.changeRoom(targetRoom.getRoomNumber());
 
         return RoomChangeResult.success(

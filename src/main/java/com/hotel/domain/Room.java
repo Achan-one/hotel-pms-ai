@@ -197,6 +197,12 @@ public class Room {
         }
     }
 
+    /**
+     * 지정된 기준일자(moveDate) 이후의 미래 투숙 스케줄을 원자적으로 회수합니다.
+     * - moveDate가 시작일과 동일하거나 이전인 경우: 전체 스케줄 완전 회수 (0박 당일 이동)
+     * - moveDate가 투숙 기간 중간인 경우: [checkInDate, moveDate) 과거 구간만 영구 보존
+     * - moveDate보다 과거인 스케줄: 온전히 보존
+     */
     public void truncatePeriodFrom(LocalDate moveDate) {
         if (moveDate == null) return;
 
@@ -204,13 +210,14 @@ public class Room {
         try {
             List<StayPeriod> updated = new ArrayList<>();
             for (StayPeriod p : this.bookedPeriods) {
-                if (!moveDate.isBefore(p.getCheckInDate()) && moveDate.isBefore(p.getCheckOutDate())) {
-                    if (moveDate.isAfter(p.getCheckInDate())) {
-                        updated.add(new StayPeriod(p.getCheckInDate(), moveDate));
-                    }
-                } else if (!p.getCheckOutDate().isAfter(moveDate)) {
+                if (!p.getCheckOutDate().isAfter(moveDate)) {
+                    // 1. 이미 퇴실일이 기준일 이전이거나 같은 과거 완료 스케줄 -> 그대로 보존
                     updated.add(p);
+                } else if (moveDate.isAfter(p.getCheckInDate()) && moveDate.isBefore(p.getCheckOutDate())) {
+                    // 2. 투숙 중간에 걸쳐 있는 경우 -> 과거 체류 일자만 분할 보존 [checkIn, moveDate)
+                    updated.add(new StayPeriod(p.getCheckInDate(), moveDate));
                 }
+                // 3. moveDate가 checkInDate 이전이거나 동일한 경우 -> 당일 취소/이동이므로 스케줄 제외
             }
 
             this.bookedPeriods.clear();
