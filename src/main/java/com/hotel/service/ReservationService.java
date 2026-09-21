@@ -149,18 +149,36 @@ public class ReservationService {
         return processRoomChange(request);
     }
 
+    /**
+     * 당일 시스템 일자 기준 체크아웃 (기본 편의 메서드)
+     */
     public void processCheckOut(String reservationId) {
-        Reservation reservation = findReservationOrThrow(reservationId);
-        reservation.checkOut();
-        reservationRepository.save(reservation);
+        processCheckOut(reservationId, LocalDate.now());
+    }
 
+    /**
+     * 특정 영업일자(Business Date) 기준 체크아웃 처리
+     * - 미정산 상태 사전 검증
+     * - 객실 미래 스케줄 회수 및 하우스키핑 OUT 처리 후 예약 원장 갱신
+     */
+    public void processCheckOut(String reservationId, LocalDate checkOutDate) {
+        LocalDate effectiveDate = (checkOutDate != null) ? checkOutDate : LocalDate.now();
+        Reservation reservation = findReservationOrThrow(reservationId);
+
+        // 1. 투숙 및 미정산 상태 검증 (정산 미완료 시 즉시 차단)
+        reservation.checkOut();
+
+        // 2. 객실 스케줄 회수 및 청소 대기(OUT) 전이
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                room.truncatePeriodFrom(LocalDate.now());
+                room.truncatePeriodFrom(effectiveDate);
                 room.setStatus(RoomStatus.OUT);
             });
         }
+
+        // 3. 검증 통과 및 객실 회수 후 최종 영속화
+        reservationRepository.save(reservation);
     }
 
     public List<Reservation> searchReservations(ReservationSearchCondition condition) {

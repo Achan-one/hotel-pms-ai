@@ -67,7 +67,7 @@ class ReportExportServiceTest {
             r.setStatus(RoomStatus.OCCUPIED);
         });
 
-        // 3. 오늘 체크인 예정 도착 고객 (Arrival)
+        // 3. 오늘 체크인 예정 도착 고객 (Arrival - 미배정 PENDING 상태)
         TagPreference tagPref = new TagPreference(Set.of("HIGH_FLOOR"), Set.of());
         Reservation arrival = new Reservation(
                 "RSV-ARR-01", "Alice", RoomType.SUPERIOR_TWIN,
@@ -149,7 +149,8 @@ class ReportExportServiceTest {
 
         String csv = reportExportService.exportDepartureListToCsv(today);
         assertTrue(csv.contains("예약ID,고객명,호실,체크인,체크아웃,상태,미수금(BalanceDue)\r\n"));
-        assertTrue(csv.contains("RSV-DEP-01,Suzuki,0505,2026-09-20,2026-09-21,체크인완료,150000"));
+        // 도메인 정식 타이틀 "투숙중" 반영
+        assertTrue(csv.contains("RSV-DEP-01,Suzuki,0505,2026-09-20,2026-09-21,투숙중,150000"));
     }
 
     @Test

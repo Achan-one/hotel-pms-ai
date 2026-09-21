@@ -164,7 +164,7 @@ public class Reservation {
     }
 
     /**
-     * 룸 체인지 실행 시 이전 호실 번호를 previousRoomNumber에 보존
+     * 룸 체인지 실행 시 현재 호실 번호만 최신화 (상태는 투숙중 CHECKED_IN 유지)
      */
     public void changeRoom(String newRoomNumber) {
         if (newRoomNumber == null || newRoomNumber.isBlank()) {
@@ -172,7 +172,6 @@ public class Reservation {
         }
         this.previousRoomNumber = this.assignedRoomNumber;
         this.assignedRoomNumber = newRoomNumber.trim();
-        this.status = ReservationStatus.ROOM_CHANGED;
     }
 
     public void checkOut() {

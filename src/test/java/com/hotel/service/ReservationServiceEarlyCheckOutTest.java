@@ -37,12 +37,13 @@ class ReservationServiceEarlyCheckOutTest {
     void earlyCheckOut_FreesFutureSchedule_WhileRetainingPastStay() {
         // Given: 어제(9/20) 체크인하여 9/23까지 3박 예정인 예약 접수 및 입실
         String rsvId = "RSV-EARLY-001";
-        PaymentLedger prepaidLedger = new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 450_000); // 정산 완료 상태
+        // PaymentLedger(PREPAID, 450000L)로 완납 정산 세팅
+        PaymentLedger prepaidLedger = new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 450_000L);
 
         Reservation reservation = new Reservation(
                 rsvId, "EarlyGuest", RoomType.SUPERIOR_DOUBLE,
                 yesterday, 3, 1, "조용한 방", GuestPreference.empty(),
-                null, null, prepaidLedger, null
+                null, null, null, prepaidLedger, null
         );
 
         reservationService.receiveReservations(List.of(reservation));
@@ -65,8 +66,8 @@ class ReservationServiceEarlyCheckOutTest {
         assertFalse(assignedRoom.isAvailable(originalStayPeriod));
         assertEquals(ReservationStatus.CHECKED_IN, reservation.getStatus());
 
-        // When: 1박 경과 후 오늘(9/21) 프론트에서 조기 체크아웃 실행
-        reservationService.processCheckOut(rsvId);
+        // When: 1박 경과 후 오늘(9/21) 프론트에서 특정 영업일자(today) 기준으로 조기 체크아웃 실행
+        reservationService.processCheckOut(rsvId, today);
 
         // Then 1: 예약 상태는 CHECKED_OUT으로 안전하게 전이되어야 함
         Reservation checkedOutGuest = reservationRepository.findById(rsvId).orElseThrow();

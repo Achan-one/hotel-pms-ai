@@ -116,7 +116,11 @@ public class ReportExportService {
                 .filter(r -> date.equals(r.getCheckOutDate()))
                 .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
                 .map(r -> {
-                    long balanceDue = (r.getPaymentLedger() != null) ? r.getPaymentLedger().getTotalDue() : 0L;
+                    long balanceDue = 0L;
+                    if (r.getStatus() != ReservationStatus.CHECKED_OUT && r.getPaymentLedger() != null) {
+                        balanceDue = r.getPaymentLedger().getTotalDue();
+                    }
+
                     return new DepartureReportItemDto(
                             r.getReservationId(),
                             r.getGuestName(),
@@ -200,6 +204,7 @@ public class ReportExportService {
         List<Room> allRooms = roomRepository.findAll();
         List<Reservation> inHouseGuests = reservationRepository.search(ReservationSearchCondition.byStayingDate(date));
         List<Reservation> arrivals = reservationRepository.findByCheckInDate(date);
+        StayPeriod singleDay = new StayPeriod(date, 1);
 
         List<RoomBalanceReportDto> report = new ArrayList<>();
 
@@ -210,11 +215,13 @@ public class ReportExportService {
 
             int oos = (int) typeRooms.stream().filter(r -> r.getStatus().isOutOfService()).count();
 
+            // 당일 체크인이 아닌 이전부터 묵고 있는 순수 연박 재실자 수
             int stayover = (int) inHouseGuests.stream()
                     .filter(r -> r.getBookedRoomType() == type)
                     .filter(r -> r.getCheckInDate().isBefore(date))
                     .count();
 
+            // 당일 신규 도착 예정자 수 (취소 제외)
             int arrivalCount = (int) arrivals.stream()
                     .filter(r -> r.getBookedRoomType() == type)
                     .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
@@ -224,7 +231,15 @@ public class ReportExportService {
             long minDailyVacant = roomAssigner.calculateMinDailyVacant(type, date, 1);
             int sellable = (int) Math.max(0, minDailyVacant - hold);
 
-            boolean balanced = (total >= (oos + stayover + arrivalCount));
+            // 해당 일자 밤에 스케줄이 점유된 실제 객실 수
+            long occupiedScheduleRooms = typeRooms.stream()
+                    .filter(r -> !r.getStatus().isOutOfService())
+                    .filter(r -> !r.isAvailable(singleDay))
+                    .count();
+
+            // [호텔 룸 밸런스 회계 등식]
+            // 물리 총 객실 수(total) == 점검(OOS) + 스케줄점유객실 + 스케줄공실(minDailyVacant)
+            boolean balanced = (total == (oos + (int) occupiedScheduleRooms + (int) minDailyVacant));
 
             report.add(new RoomBalanceReportDto(
                     date, type, type.getDescription(), total, oos, stayover, arrivalCount, hold, sellable, balanced

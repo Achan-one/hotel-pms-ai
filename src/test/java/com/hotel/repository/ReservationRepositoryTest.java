@@ -24,7 +24,6 @@ class ReservationRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        // 인터페이스 타입 변수에 InMemory 구현체 주입
         repository = new InMemoryReservationRepository();
 
         // 테스트 기본 픽스처 4건 적재
@@ -94,7 +93,7 @@ class ReservationRepositoryTest {
     }
 
     @Test
-    @DisplayName("예약 라이프사이클 전이 검증: PENDING -> ASSIGNED -> CHECKED_IN -> ROOM_CHANGED -> CHECKED_OUT")
+    @DisplayName("예약 라이프사이클 전이 검증: PENDING -> ASSIGNED -> CHECKED_IN (룸체인지 후에도 투숙중 유지) -> CHECKED_OUT")
     void reservationLifecycle_StateTransitions() {
         Reservation res = new Reservation("RSV-LIFE", "Sato", RoomType.SUPERIOR_TWIN, sep20, 2, null, GuestPreference.empty());
         assertEquals(ReservationStatus.PENDING, res.getStatus());
@@ -108,9 +107,11 @@ class ReservationRepositoryTest {
         assertEquals(ReservationStatus.CHECKED_IN, res.getStatus());
         assertTrue(res.getStatus().isInHouse());
 
-        // 3. 룸 체인지
+        // 3. 룸 체인지: 호실 번호만 최신화되고 예약 계약 상태는 CHECKED_IN(투숙중) 유지
         res.changeRoom("0805");
-        assertEquals(ReservationStatus.ROOM_CHANGED, res.getStatus());
+        assertEquals("0805", res.getAssignedRoomNumber());
+        assertEquals("0501", res.getPreviousRoomNumber());
+        assertEquals(ReservationStatus.CHECKED_IN, res.getStatus(), "룸 체인지 후에도 예약 상태는 투숙중(CHECKED_IN)이어야 합니다.");
         assertTrue(res.getStatus().isInHouse());
 
         // 4. 퇴실

@@ -2,6 +2,7 @@ package com.hotel.service;
 
 import com.hotel.domain.*;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.memory.InMemoryRoomRepository;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,7 +22,7 @@ class RoomChangeServiceTest {
 
     @BeforeEach
     void setUp() {
-        roomRepository = new com.hotel.repository.memory.InMemoryRoomRepository();
+        roomRepository = new InMemoryRoomRepository();
         roomChangeService = new RoomChangeService(roomRepository);
     }
 
@@ -57,7 +58,11 @@ class RoomChangeServiceTest {
         assertTrue(result.success());
         assertEquals(2, result.remainingNights());
         assertEquals(targetRoom.getRoomNumber(), res.getAssignedRoomNumber());
-        assertEquals(ReservationStatus.ROOM_CHANGED, res.getStatus());
+        assertEquals(originRoom.getRoomNumber(), res.getPreviousRoomNumber());
+
+        // 상태 단순화 검증: ROOM_CHANGED 대신 CHECKED_IN(투숙중) 유지
+        assertEquals(ReservationStatus.CHECKED_IN, res.getStatus(), "룸 체인지 후에도 예약의 본질 상태는 투숙중(CHECKED_IN)이어야 합니다.");
+        assertTrue(res.getStatus().isInHouse());
 
         // 하우스키핑 상태 전이: 이전 방은 OUT, 새 방은 OCCUPIED
         assertEquals(RoomStatus.OUT, originRoom.getStatus());
@@ -148,6 +153,7 @@ class RoomChangeServiceTest {
 
         assertTrue(result.success());
         assertEquals(2, result.remainingNights());
+        assertEquals(ReservationStatus.CHECKED_IN, res.getStatus());
         assertEquals(RoomStatus.OUT, originRoom.getStatus());
         assertEquals(RoomStatus.OCCUPIED, targetRoom.getStatus());
 

@@ -3,6 +3,8 @@ package com.hotel.service;
 import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.memory.InMemoryReservationRepository;
+import com.hotel.repository.memory.InMemoryRoomRepository;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,8 +29,8 @@ class ReservationServiceTest {
 
     @BeforeEach
     void setUp() {
-        reservationRepository = new com.hotel.repository.memory.InMemoryReservationRepository();
-        roomRepository = new com.hotel.repository.memory.InMemoryRoomRepository();
+        reservationRepository = new InMemoryReservationRepository();
+        roomRepository = new InMemoryRoomRepository();
 
         // [태그 지향 모의 AI 스텁] 요청 텍스트에 "고층"이 있으면 HIGH_FLOOR 태그 스위치를 켬
         AiPreferenceParser stubAiParser = new AiPreferenceParser(null, null) {
@@ -83,7 +85,6 @@ class ReservationServiceTest {
         assertNotNull(assignedR1.getAssignedRoomNumber());
         assertTrue(assignedR1.isAssigned());
 
-        // [수정 포인트] 태그 지향 체계에 맞게 HIGH_FLOOR 태그 스위치가 켜졌는지 검증
         assertTrue(assignedR1.getTagPreference().preferredTags().contains("HIGH_FLOOR"));
     }
 
@@ -113,7 +114,7 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("[4. 룸 체인지] 동일 타입 공실로 이동 성공 시 예약 상태가 ROOM_CHANGED로 갱신되어야 한다")
+    @DisplayName("[4. 룸 체인지] 동일 타입 공실로 이동 성공 시 배정 호실이 변경되고 예약 상태는 CHECKED_IN(투숙중)을 유지해야 한다")
     void processRoomChange_Success() {
         Reservation r1 = new Reservation("RSV-MOVE-01", "Kim", RoomType.SUPERIOR_TWIN, today, 2, null, null);
         reservationService.receiveReservations(List.of(r1));
@@ -137,8 +138,10 @@ class ReservationServiceTest {
         assertTrue(result.success());
         Reservation movedReservation = reservationRepository.findById("RSV-MOVE-01").orElseThrow();
 
-        assertEquals(ReservationStatus.ROOM_CHANGED, movedReservation.getStatus());
+        // ROOM_CHANGED 대신 CHECKED_IN 유지 검증
+        assertEquals(ReservationStatus.CHECKED_IN, movedReservation.getStatus(), "룸 체인지 후에도 예약 상태는 투숙중(CHECKED_IN)이어야 합니다.");
         assertEquals(targetRoom.getRoomNumber(), movedReservation.getAssignedRoomNumber());
+        assertEquals(originRoom, movedReservation.getPreviousRoomNumber());
         assertTrue(movedReservation.getStatus().isInHouse());
     }
 
@@ -154,7 +157,7 @@ class ReservationServiceTest {
         String assignedRoom = checkedIn.getAssignedRoomNumber();
 
         r1.getPaymentLedger().settle();
-        reservationService.processCheckOut("RSV-OUT-01");
+        reservationService.processCheckOut("RSV-OUT-01", today);
 
         Reservation checkedOut = reservationRepository.findById("RSV-OUT-01").orElseThrow();
         assertEquals(ReservationStatus.CHECKED_OUT, checkedOut.getStatus());
