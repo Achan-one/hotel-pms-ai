@@ -5,6 +5,7 @@ import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
 import com.hotel.service.*;
+import com.hotel.service.dto.AssignmentAlert;
 import com.hotel.service.dto.FloorMapResponseDto;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
@@ -20,50 +21,57 @@ public class Main {
         TagRepository tagRepository = new TagRepository();
         RoomRepository roomRepository = new RoomRepository();
         ReservationRepository reservationRepository = new ReservationRepository();
-        TagQuotaPolicy tagQuotaPolicy = new TagQuotaPolicy();
 
-        // 2. 관리자 커스텀 태그 등록 및 객실 부여
-        registerCustomTagsAndAssignToRooms(tagRepository, roomRepository);
+        // 2. [통합 쿼터 정책] 초기 상수로 가동:
+        //    - 타입별 킵: 이그제큐티브 더블 1실, 슈페리어 트윈 2실, 레지덴셜 더블 2실
+        //    - 태그별 킵: 도쿄타워 뷰 2실, 배리어프리 1실
+        QuotaPolicy quotaPolicy = new QuotaPolicy();
 
-        // [실무 쿼터 설정] 도쿄타워 전망 객실 2실 킵, 배리어프리 1실 킵
-        tagQuotaPolicy.setHoldQuota("VIEW_TOKYO_TOWER", 2);
-        tagQuotaPolicy.setHoldQuota("ACCESSIBLE", 1);
+        // 3. [어드민 전용 태그 관리 서비스] 가동 및 태그 등록
+        AdminTagService adminTagService = new AdminTagService(tagRepository, quotaPolicy);
+        registerAdminCustomTags(adminTagService, roomRepository);
 
-        // 3. AI 파서 생성
         AiPreferenceParser aiParser = new AiPreferenceParser(tagRepository);
-
-        // 4. [수정] tagQuotaPolicy가 전달된 서비스 계층 구성
         ReservationService reservationService = new ReservationService(
-                reservationRepository, roomRepository, aiParser, tagQuotaPolicy
+                reservationRepository, roomRepository, aiParser, tagRepository, quotaPolicy
         );
         FloorStatusService floorStatusService = new FloorStatusService(roomRepository);
 
         LocalDate today = LocalDate.of(2026, 9, 20);
 
         System.out.println("================================================================================");
-        System.out.println("🏨 [AI-Driven Hotel PMS Core Engine] 태그 지향 시스템 오케스트레이션 가동");
+        System.out.println("🏨 [AI-Driven Hotel PMS Core Engine] 타입/태그 통합 쿼터 & 미충족 경고 시스템");
         System.out.println("   운영 기준 일자: " + today);
         System.out.println("   AI 엔진 설정: " + aiParser.getConfig());
         System.out.println("================================================================================\n");
 
-        System.out.println("🏷️ [호텔 관리자 정의 실시간 객실 태그 카탈로그]");
+        System.out.println("🏷️ [호텔 관리자(ADMIN) 정의 실시간 객실 태그 카탈로그 (엄격도 포함)]");
         System.out.println("--------------------------------------------------------------------------------");
         System.out.print(tagRepository.buildPromptTagDictionary());
         System.out.println("--------------------------------------------------------------------------------\n");
 
-        // 5. 사전 재실 20실 세팅
+        System.out.println("🛡️ [호텔 관리자 정의 운영 보존 쿼터 (Safety Stock Hold)]");
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("- 타입별 킵: 이그제큐티브 더블 " + quotaPolicy.getTypeHoldQuota(RoomType.EXECUTIVE_DOUBLE) + "실, "
+                + "슈페리어 트윈 " + quotaPolicy.getTypeHoldQuota(RoomType.SUPERIOR_TWIN) + "실, "
+                + "레지덴셜 더블 " + quotaPolicy.getTypeHoldQuota(RoomType.RESIDENTIAL_DOUBLE) + "실");
+        System.out.println("- 태그별 킵: 도쿄타워 전망 " + quotaPolicy.getTagHoldQuota("VIEW_TOKYO_TOWER") + "실, "
+                + "배리어프리 " + quotaPolicy.getTagHoldQuota("ACCESSIBLE") + "실");
+        System.out.println("--------------------------------------------------------------------------------\n");
+
+        // 4. 초기 재실 생성 (20실 투숙 중)
         simulateExistingCheckInsWithSchedule(roomRepository, 20, today);
         long preOccupied = roomRepository.findAll().stream().filter(r -> r.isOccupiedOn(today)).count();
         System.out.printf("📌 [초기 객실 상태] 기존 투숙: %d실 / 배정 가능 공실: %d실%n%n",
                 preOccupied, 191 - preOccupied);
 
-        // 6. 50개 예약 접수
+        // 5. 50건 가상 예약 인입
         List<Reservation> incomingReservations = generate50RealisticReservations(today);
         List<Reservation> acceptedReservations = reservationService.receiveReservations(incomingReservations);
         System.out.printf("📝 [예약 접수 완료] %d건 인입 중 유효 예약 %d건 장부 적재 완료%n%n",
                 incomingReservations.size(), acceptedReservations.size());
 
-        // 7. 일괄 자동 배정 실행
+        // 6. 배치 자동 배정 실행
         System.out.println("⚡ [Gemini 2.5 Flash & BatchAssigner] 당일 일괄 배정 파이프라인 가동...");
         long startTime = System.currentTimeMillis();
         BatchAssignmentResult assignmentResult = reservationService.runDailyBatchAssignment(today);
@@ -72,7 +80,7 @@ public class Main {
         System.out.println(assignmentResult.toSummaryString());
         System.out.println();
 
-        // 8. 결과 테이블 구성 (실패 건도 태그 분석 결과 표시)
+        // 7. 전체 매칭 테이블 출력
         Map<String, Reservation> allProcessedMap = new HashMap<>();
         for (Reservation r : assignmentResult.getSuccessfulAssignments()) {
             allProcessedMap.put(r.getReservationId(), r);
@@ -123,11 +131,33 @@ public class Main {
         }
         System.out.println("========================================================================================================================\n");
 
-        // 9. 실패 건 리포트
+        // 8. 🚨 필수 하드 리퀘스트 미충족 경고 리포트 콘솔 출력
+        List<AssignmentAlert> alerts = assignmentResult.getHardRequestAlerts();
+        if (!alerts.isEmpty()) {
+            System.out.println("========================================================================================================================");
+            System.out.printf("🚨 [프론트 데스크 주의 요망: 필수 하드 리퀘스트(HARD) 미충족 배정 알림 (총 %d건)]%n", alerts.size());
+            System.out.println("========================================================================================================================");
+            System.out.printf("%-13s | %-12s | %-6s | %-24s | %s%n",
+                    "예약ID", "고객명", "배정호실", "미충족 필수 요청", "미충족 원인 상세 사유");
+            System.out.println("------------------------------------------------------------------------------------------------------------------------");
+            for (AssignmentAlert alert : alerts) {
+                System.out.printf("%-13s | %-12s | %-6s | %-22s | %s%n",
+                        alert.reservation().getReservationId(),
+                        alert.reservation().getGuestName(),
+                        alert.assignedRoomNumber() + "호",
+                        alert.unfulfilledTag(),
+                        alert.reason()
+                );
+            }
+            System.out.println("------------------------------------------------------------------------------------------------------------------------");
+            System.out.println("👉 안내 조치: 체크인 시 고객에게 사유를 선제적으로 정중히 안내하고, 당일 취소 공실 발생 시 우선 룸 체인지 후보로 관리 요망.\n");
+        }
+
+        // 9. 배정 실패 건 리포트 (만실 / 타입별 킵 방어)
         var failedItems = assignmentResult.getFailedAssignments();
         if (!failedItems.isEmpty()) {
             System.out.println("================================================================================");
-            System.out.printf("⚠️ [배정 실패 알림] 총 %d건의 예약이 만실/홀딩 등으로 배정되지 못했습니다%n", failedItems.size());
+            System.out.printf("⚠️ [배정 실패 알림] 총 %d건의 예약이 만실/보존 쿼터 홀딩 등으로 배정되지 못했습니다%n", failedItems.size());
             System.out.println("================================================================================");
             System.out.printf("%-13s | %-16s | %-4s | %-24s | %s%n",
                     "예약ID", "신청 객실타입", "박수", "실패 사유", "고객 요청 메모(원문)");
@@ -198,25 +228,29 @@ public class Main {
         System.out.println("================================================================================");
     }
 
-    private static void registerCustomTagsAndAssignToRooms(TagRepository tagRepo, RoomRepository roomRepo) {
+    private static void registerAdminCustomTags(AdminTagService adminService, RoomRepository roomRepo) {
+        boolean isAdmin = true;
+
+        // 도쿄타워 뷰 (Soft)
         RoomTag tokyoTowerView = new RoomTag(
                 "VIEW_TOKYO_TOWER", "도쿄타워 전망",
                 "창밖으로 도쿄타워 및 시티 랜드마크 야경이 펼쳐지는 객실, 타워 뷰 희망 시 매칭",
-                RoomTag.TagCategory.VIEW, 30
+                RoomTag.TagCategory.VIEW, TagStrictness.SOFT, 30
         );
-        tagRepo.save(tokyoTowerView);
+        adminService.registerTag(isAdmin, tokyoTowerView);
 
         roomRepo.findByRoomNumber("1401").ifPresent(r -> r.addTag("VIEW_TOKYO_TOWER"));
         roomRepo.findByRoomNumber("1402").ifPresent(r -> r.addTag("VIEW_TOKYO_TOWER"));
         roomRepo.findByRoomNumber("1501").ifPresent(r -> r.addTag("VIEW_TOKYO_TOWER"));
         roomRepo.findByRoomNumber("1502").ifPresent(r -> r.addTag("VIEW_TOKYO_TOWER"));
 
+        // 아로마 힐링룸 (Soft)
         RoomTag aromaRoom = new RoomTag(
                 "AMENITY_AROMA", "아로마 힐링룸",
                 "라벤더 아로마 디퓨저 및 릴렉스 공기청정기가 구비된 힐링 전용 객실, 향기나 힐링 요청 시 매칭",
-                RoomTag.TagCategory.AMENITY, 20
+                RoomTag.TagCategory.AMENITY, TagStrictness.SOFT, 20
         );
-        tagRepo.save(aromaRoom);
+        adminService.registerTag(isAdmin, aromaRoom);
 
         roomRepo.findByRoomNumber("1216").ifPresent(r -> r.addTag("AMENITY_AROMA"));
         roomRepo.findByRoomNumber("1316").ifPresent(r -> r.addTag("AMENITY_AROMA"));
@@ -291,7 +325,7 @@ public class Main {
                 "静かに過ごしたいので、エレベーターから離れた高層階の部屋をお願いします。",
                 "High floor with a nice Tokyo Tower view please!",
                 "결혼기념일 여행이라 야경 좋은 방이나 아로마 힐링되는 방 희망합니다.",
-                "足が不自由なため、できるだけ低層階かつエレ베이터近くの部屋が希望です。",
+                "足が不自由なため、できるだけ低層階かつエレベーター近くの部屋が希望です。",
                 "Baby sleeping, very quiet room needed away from lift noise.",
                 "야간 근무 후 쉬러 갑니다. 조용한 안쪽 방으로 주세요.",
                 "도쿄타워 보이는 방으로 꼭 부탁드립니다.",
@@ -307,7 +341,7 @@ public class Main {
             String rsvId = String.format("RSV-BATCH-%03d", i);
             String guestName = "Guest_" + i;
             RoomType type = types[rand.nextInt(types.length)];
-            int nights = rand.nextInt(7) + 1;
+            int nights = rand.nextInt(7) + 1; // 1~7박 연박 시뮬레이션
             String note = realisticNotes[i % realisticNotes.length];
 
             list.add(new Reservation(rsvId, guestName, type, today, nights, note, GuestPreference.empty()));

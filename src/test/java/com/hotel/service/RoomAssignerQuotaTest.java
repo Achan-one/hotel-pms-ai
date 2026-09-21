@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class RoomAssignerQuotaTest {
 
     private RoomRepository roomRepository;
-    private TagQuotaPolicy quotaPolicy;
+    private QuotaPolicy quotaPolicy;
     private RoomAssigner assigner;
 
     private final LocalDate today = LocalDate.of(2026, 9, 20);
@@ -24,13 +24,19 @@ class RoomAssignerQuotaTest {
     @BeforeEach
     void setUp() {
         roomRepository = new RoomRepository();
-        quotaPolicy = new TagQuotaPolicy();
+        // QuotaPolicy는 기본 상수로 초기화됨:
+        // (타입 킵: 이그제큐티브 1, 트윈 2, 레지덴셜 2 / 태그 킵: 타워뷰 2, 배리어프리 1)
+        quotaPolicy = new QuotaPolicy();
         assigner = new RoomAssigner(roomRepository, quotaPolicy);
     }
 
+    // =========================================================================
+    // 1. 태그 기준 킵 (Tag Quota) 테스트
+    // =========================================================================
+
     @Test
     @DisplayName("[태그 쿼터 차단] 킵 수량 이하로 남은 특수 태그 객실은 해당 태그 요청이 없는 일반 예약에 배정되지 않아야 한다")
-    void assign_GeneralGuest_BlockedFromQuotaRooms() {
+    void assign_GeneralGuest_BlockedFromTagQuotaRooms() {
         // Given: 슈페리어 트윈 객실 전체에 대해 특정 2개 객실(0301호, 0401호)에만 특수 태그 "ACCESSIBLE" 부여
         String accessibleTag = "ACCESSIBLE";
         Room r0301 = roomRepository.findByRoomNumber("0301").orElseThrow();
@@ -38,17 +44,10 @@ class RoomAssignerQuotaTest {
         r0301.addTag(accessibleTag);
         r0401.addTag(accessibleTag);
 
-        // 호텔 정책: 배리어프리(ACCESSIBLE) 객실은 현장 긴급 인입을 위해 최소 2실 킵 설정
-        quotaPolicy.setHoldQuota(accessibleTag, 2);
+        // 배리어프리(ACCESSIBLE) 객실은 현장 긴급 인입을 위해 최소 2실 킵 설정
+        quotaPolicy.setTagHoldQuota(accessibleTag, 2);
 
-        // 슈페리어 트윈 공실 중 ACCESSIBLE 태그가 없는 일반 객실을 1건 조회
-        Room normalRoom = roomRepository.findAll().stream()
-                .filter(r -> r.getRoomType() == RoomType.SUPERIOR_TWIN)
-                .filter(r -> !r.hasTag(accessibleTag))
-                .findFirst()
-                .orElseThrow();
-
-        // When: 태그 요청이 없는 일반 고객(shortStay)이 예약 신청
+        // When: 태그 요청이 없는 일반 고객이 예약 신청
         Reservation generalGuest = new Reservation(
                 "RSV-GEN-01", "일반손님", RoomType.SUPERIOR_TWIN,
                 today, 1, null, GuestPreference.empty()
@@ -64,13 +63,13 @@ class RoomAssignerQuotaTest {
 
     @Test
     @DisplayName("[태그 희망자 허용] 킵 수량 임계치에 도달했더라도 해당 태그를 명시적으로 선호한 고객에게는 정상 배정되어야 한다")
-    void assign_PreferredTagGuest_AllocatedFromQuotaRooms() {
+    void assign_PreferredTagGuest_AllocatedFromTagQuotaRooms() {
         // Given: 슈페리어 트윈 객실 중 0301호에 "VIEW_TOKYO_TOWER" 태그 부여 및 1실 킵 설정
         String towerTag = "VIEW_TOKYO_TOWER";
         Room r0301 = roomRepository.findByRoomNumber("0301").orElseThrow();
         r0301.addTag(towerTag);
 
-        quotaPolicy.setHoldQuota(towerTag, 1);
+        quotaPolicy.setTagHoldQuota(towerTag, 1);
 
         // 도쿄타워 전망 태그 스위치가 켜진 예약 생성
         TagPreference pref = new TagPreference(Set.of(towerTag), Set.of());
@@ -89,11 +88,14 @@ class RoomAssignerQuotaTest {
     }
 
     @Test
-    @DisplayName("[인벤토리 소진 시 킵 객실 보호] 일반 객실이 전부 차고 킵 객실만 남았을 때 일반 예약은 만실(empty) 격리되어야 한다")
-    void assign_WhenOnlyQuotaRoomsLeft_GeneralGuestRejected() {
+    @DisplayName("[인벤토리 소진 시 태그 킵 객실 보호] 일반 객실이 전부 차고 킵 객실만 남았을 때 일반 예약은 만실 격리되어야 한다")
+    void assign_WhenOnlyTagQuotaRoomsLeft_GeneralGuestRejected() {
         String towerTag = "VIEW_TOKYO_TOWER";
 
-        // 슈페리어 트윈 객실 중 0301호만 남겨두고 나머지는 모두 사전 점유 처리
+        // 슈페리어 트윈 타입 킵을 테스트 격리를 위해 임시로 0으로 설정
+        quotaPolicy.setTypeHoldQuota(RoomType.SUPERIOR_TWIN, 0);
+
+        // 슈페리어 트윈 객실 중 0301호만 남겨두고 나머지는 모두 점유 처리
         StayPeriod stay = new StayPeriod(today, 1);
         List<Room> twinRooms = roomRepository.findAll().stream()
                 .filter(r -> r.getRoomType() == RoomType.SUPERIOR_TWIN)
@@ -108,7 +110,7 @@ class RoomAssignerQuotaTest {
         // 유일하게 남은 0301호에 태그 부여 및 1실 킵 정책 설정
         Room lastRoom = roomRepository.findByRoomNumber("0301").orElseThrow();
         lastRoom.addTag(towerTag);
-        quotaPolicy.setHoldQuota(towerTag, 1);
+        quotaPolicy.setTagHoldQuota(towerTag, 1);
 
         // When: 태그 요청이 없는 일반 고객 배정 시도
         Reservation generalGuest = new Reservation(
@@ -134,5 +136,67 @@ class RoomAssignerQuotaTest {
         // Then: 킵해두었던 0301호가 VIP 손님에게 정상 배정 확정
         assertTrue(assignedVip.isPresent());
         assertEquals("0301", assignedVip.get().getRoomNumber());
+    }
+
+    // =========================================================================
+    // 2. 객실 타입 기준 킵 (Type Quota) 테스트
+    // =========================================================================
+
+    @Test
+    @DisplayName("[타입 쿼터 차단] 이그제큐티브 더블 잔여 공실이 타입 킵 수량(1실) 이하이면 자동 배정이 차단되어야 한다")
+    void assign_ExecutiveDouble_BlockedWhenReachingTypeQuota() {
+        // Given: 이그제큐티브 더블은 호텔에 단 4실(1404, 1408, 1504, 1508)만 존재
+        // QuotaPolicy 기본값으로 EXECUTIVE_DOUBLE은 1실 킵 설정되어 있음
+        assertEquals(1, quotaPolicy.getTypeHoldQuota(RoomType.EXECUTIVE_DOUBLE));
+
+        StayPeriod stay = new StayPeriod(today, 1);
+        List<Room> execRooms = roomRepository.findAll().stream()
+                .filter(r -> r.getRoomType() == RoomType.EXECUTIVE_DOUBLE)
+                .toList();
+
+        // 4실 중 3실을 미리 점유시켜 '단 1실'만 남김
+        for (int i = 0; i < 3; i++) {
+            execRooms.get(i).bookPeriod(stay);
+        }
+
+        // When: 남은 1실에 대해 예약 신청 인입
+        Reservation guest = new Reservation(
+                "RSV-EXEC-BLOCK", "이그제큐티브손님", RoomType.EXECUTIVE_DOUBLE,
+                today, 1, "좋은 방 부탁합니다", GuestPreference.empty()
+        );
+
+        Optional<Room> assigned = assigner.assign(guest);
+
+        // Then: 물리적 공실이 1개 남아있지만, 타입 킵 수량(1실)에 걸려 자동 배정이 차단(empty)되어야 함
+        assertTrue(assigned.isEmpty(),
+                "타입 킵 수량(1실) 이하로 남은 객실은 현장 워크인/VIP 방어를 위해 자동 배정되지 않아야 합니다.");
+    }
+
+    @Test
+    @DisplayName("[타입 쿼터 동적 변경] 관리자가 타입 킵 수량을 0으로 해제하면 잔여 1실도 정상 배정되어야 한다")
+    void assign_WhenAdminReleasesTypeQuota_AllocatedSuccessfully() {
+        // Given: 이그제큐티브 4실 중 3실 점유 (1실만 공실)
+        StayPeriod stay = new StayPeriod(today, 1);
+        List<Room> execRooms = roomRepository.findAll().stream()
+                .filter(r -> r.getRoomType() == RoomType.EXECUTIVE_DOUBLE)
+                .toList();
+        for (int i = 0; i < 3; i++) {
+            execRooms.get(i).bookPeriod(stay);
+        }
+
+        // 관리자가 현장 판단으로 킵 수량을 0으로 해제
+        quotaPolicy.setTypeHoldQuota(RoomType.EXECUTIVE_DOUBLE, 0);
+
+        // When: 예약 신청 인입
+        Reservation guest = new Reservation(
+                "RSV-EXEC-PASS", "이그제큐티브손님", RoomType.EXECUTIVE_DOUBLE,
+                today, 1, null, GuestPreference.empty()
+        );
+
+        Optional<Room> assigned = assigner.assign(guest);
+
+        // Then: 킵이 풀렸으므로 남은 1실에 정상 배정 확정
+        assertTrue(assigned.isPresent());
+        assertEquals(RoomType.EXECUTIVE_DOUBLE, assigned.get().getRoomType());
     }
 }

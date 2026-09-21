@@ -3,6 +3,7 @@ package com.hotel.service;
 import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.TagRepository;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
@@ -19,35 +20,37 @@ public class ReservationService {
     private final BatchAssigner batchAssigner;
     private final RoomChangeService roomChangeService;
     private final RoomRepository roomRepository;
-    private final TagQuotaPolicy tagQuotaPolicy;
+    private final QuotaPolicy quotaPolicy;
 
-    // [기존 레거시 및 테스트 호환 생성자]
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser) {
-        this(reservationRepository, roomRepository, aiParser, new TagQuotaPolicy());
+        this(reservationRepository, roomRepository, aiParser, new TagRepository(), new QuotaPolicy());
     }
 
-    // [오류 2 해결: TagQuotaPolicy 정식 주입 생성자]
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser,
-                              TagQuotaPolicy tagQuotaPolicy) {
+                              QuotaPolicy quotaPolicy) {
+        this(reservationRepository, roomRepository, aiParser, new TagRepository(), quotaPolicy);
+    }
+
+    public ReservationService(ReservationRepository reservationRepository,
+                              RoomRepository roomRepository,
+                              AiPreferenceParser aiParser,
+                              TagRepository tagRepository,
+                              QuotaPolicy quotaPolicy) {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.reservationRepository = Objects.requireNonNull(reservationRepository, "reservationRepository는 필수입니다.");
-        this.tagQuotaPolicy = (tagQuotaPolicy != null) ? tagQuotaPolicy : new TagQuotaPolicy();
+        this.quotaPolicy = (quotaPolicy != null) ? quotaPolicy : new QuotaPolicy();
         this.validator = new ReservationValidator();
         this.aiParser = (aiParser != null) ? aiParser : new AiPreferenceParser();
-        // 쿼터 정책이 주입된 RoomAssigner를 BatchAssigner에 연결
-        this.batchAssigner = new BatchAssigner(new RoomAssigner(roomRepository, this.tagQuotaPolicy));
+        this.batchAssigner = new BatchAssigner(roomRepository, tagRepository, this.quotaPolicy);
         this.roomChangeService = new RoomChangeService(roomRepository);
     }
 
     public List<Reservation> receiveReservations(List<Reservation> rawReservations) {
-        if (rawReservations == null || rawReservations.isEmpty()) {
-            return List.of();
-        }
-
+        if (rawReservations == null || rawReservations.isEmpty()) return List.of();
         List<Reservation> validList = validator.filterValidReservations(rawReservations);
         reservationRepository.saveAll(validList);
         return validList;
@@ -55,10 +58,9 @@ public class ReservationService {
 
     public BatchAssignmentResult runDailyBatchAssignment(LocalDate checkInDate) {
         Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
-
         List<Reservation> pendingList = reservationRepository.findUnassignedByCheckInDate(checkInDate);
         if (pendingList.isEmpty()) {
-            return new BatchAssignmentResult(List.of(), List.of());
+            return new BatchAssignmentResult(List.of(), List.of(), List.of());
         }
 
         Map<String, TagPreference> parsedTagPreferences = aiParser.parseBatch(pendingList);
@@ -80,11 +82,9 @@ public class ReservationService {
 
     public void processCheckIn(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
-
         if (!reservation.isAssigned()) {
             throw new IllegalStateException("객실 배정이 완료되지 않은 예약은 체크인할 수 없습니다: " + reservationId);
         }
-
         reservation.checkIn();
         reservationRepository.save(reservation);
     }
@@ -92,13 +92,10 @@ public class ReservationService {
     public RoomChangeResult processRoomChange(RoomChangeRequest request) {
         Objects.requireNonNull(request, "RoomChangeRequest 요청은 필수입니다.");
         Reservation reservation = findReservationOrThrow(request.reservationId());
-
         RoomChangeResult result = roomChangeService.changeRoom(reservation, request);
-
         if (result.success()) {
             reservationRepository.save(reservation);
         }
-
         return result;
     }
 
@@ -141,46 +138,34 @@ public class ReservationService {
 
     public void cancelRoomAssignment(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
-
         if (!reservation.isAssigned()) return;
-
         if (reservation.getStatus().isInHouse()) {
             throw new IllegalStateException("이미 입실(체크인)한 고객의 객실 배정은 직접 취소할 수 없습니다. (룸 체인지를 이용하세요)");
         }
-
         String roomNumber = reservation.getAssignedRoomNumber();
         StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
-
         if (roomNumber != null) {
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                room.cancelPeriod(stayPeriod);
-            });
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> room.cancelPeriod(stayPeriod));
         }
-
         reservation.cancelAssignment();
         reservationRepository.save(reservation);
     }
 
     public void cancelReservation(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
-
         if (reservation.getStatus().isInHouse()) {
             throw new IllegalStateException("현재 투숙 중인 예약은 취소할 수 없습니다. (체크아웃을 진행하세요)");
         }
-
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
             StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                room.cancelPeriod(stayPeriod);
-            });
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> room.cancelPeriod(stayPeriod));
         }
-
         reservation.cancelReservation();
         reservationRepository.save(reservation);
     }
 
-    public TagQuotaPolicy getTagQuotaPolicy() {
-        return tagQuotaPolicy;
+    public QuotaPolicy getQuotaPolicy() {
+        return quotaPolicy;
     }
 }

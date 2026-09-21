@@ -1,35 +1,34 @@
 package com.hotel.service;
 
-import com.hotel.domain.GuestPreference;
+import com.hotel.domain.*;
 import com.hotel.domain.GuestPreference.CornerPref;
 import com.hotel.domain.GuestPreference.ElevatorPref;
 import com.hotel.domain.GuestPreference.FloorPref;
-import com.hotel.domain.Reservation;
-import com.hotel.domain.Room;
-import com.hotel.domain.RoomTag;
-import com.hotel.domain.StayPeriod;
-import com.hotel.domain.TagPreference;
-import com.hotel.domain.TagQuotaPolicy;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.TagRepository;
+import com.hotel.service.dto.AssignmentAlert;
 
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 public class RoomAssigner {
 
     private final RoomRepository roomRepository;
+    private final TagRepository tagRepository;
     private final TagScoringEngine tagScoringEngine;
-    private final TagQuotaPolicy tagQuotaPolicy;
+    private final QuotaPolicy quotaPolicy;
 
     public RoomAssigner(RoomRepository roomRepository) {
-        this(roomRepository, new TagQuotaPolicy());
+        this(roomRepository, new TagRepository(), new QuotaPolicy());
     }
 
-    public RoomAssigner(RoomRepository roomRepository, TagQuotaPolicy tagQuotaPolicy) {
+    public RoomAssigner(RoomRepository roomRepository, QuotaPolicy quotaPolicy) {
+        this(roomRepository, new TagRepository(), quotaPolicy);
+    }
+
+    public RoomAssigner(RoomRepository roomRepository, TagRepository tagRepository, QuotaPolicy quotaPolicy) {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
-        this.tagQuotaPolicy = (tagQuotaPolicy != null) ? tagQuotaPolicy : new TagQuotaPolicy();
+        this.tagRepository = (tagRepository != null) ? tagRepository : new TagRepository();
+        this.quotaPolicy = (quotaPolicy != null) ? quotaPolicy : new QuotaPolicy();
         this.tagScoringEngine = new TagScoringEngine();
     }
 
@@ -42,18 +41,26 @@ public class RoomAssigner {
 
         StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
         TagPreference tagPref = reservation.getTagPreference();
+        RoomType bookedType = reservation.getBookedRoomType();
 
-        // Pass 1: Hard Filter (공실 & 룸타입 일치 검증)
+        // 1. 해당 기간 동일 타입 물리적 공실 추출
         List<Room> candidates = roomRepository.findAll().stream()
                 .filter(room -> room.isAvailable(targetPeriod))
-                .filter(room -> room.getRoomType() == reservation.getBookedRoomType())
+                .filter(room -> room.getRoomType() == bookedType)
                 .toList();
 
         if (candidates.isEmpty()) {
             return Optional.empty();
         }
 
-        // Pass 1-1: 태그 킵(Safety Quota) 방어 필터
+        // 2. [신규: 타입별 킵(Type Quota) 방어]
+        // 남은 물리적 공실이 관리자가 지정한 타입 킵 수량 이하이면 자동 배정을 차단(만실/보존 처리)
+        int typeHoldQuota = quotaPolicy.getTypeHoldQuota(bookedType);
+        if (candidates.size() <= typeHoldQuota) {
+            return Optional.empty();
+        }
+
+        // 3. [태그별 킵(Tag Quota) 방어 필터링]
         List<Room> allocatableCandidates = candidates.stream()
                 .filter(room -> isRoomAllocatableUnderQuota(room, candidates, tagPref))
                 .toList();
@@ -62,10 +69,10 @@ public class RoomAssigner {
             return Optional.empty();
         }
 
-        // Pass 2: Soft Scoring
         GuestPreference pref = reservation.getPreference();
         int stayNights = reservation.getStayNights();
 
+        // 4. Soft Scoring 최적 객실 선별
         Optional<Room> bestRoomOpt = allocatableCandidates.stream()
                 .max(Comparator.comparingInt(room -> calculateScore(room, pref, tagPref, stayNights)));
 
@@ -78,12 +85,60 @@ public class RoomAssigner {
     }
 
     /**
-     * [오류 3 수정] 특정 태그를 명시적으로 요청한 고객은 해당 태그의 쿼터 예외를 받고,
-     * 고객이 요구하지 않은 다른 태그의 쿼터 임계치가 걸려있다면 방어를 유지함
+     * 고객이 요구한 HARD(필수) 태그 미충족 시, 단순 매진인지 쿼터 킵(Safety Quota) 때문인지 판별하여 경고 생성
      */
+    public List<AssignmentAlert> checkHardRequestAlerts(Reservation reservation, Room assignedRoom) {
+        if (reservation == null || assignedRoom == null) return List.of();
+
+        TagPreference tagPref = reservation.getTagPreference();
+        if (tagPref == null || tagPref.preferredTags().isEmpty()) return List.of();
+
+        List<AssignmentAlert> alerts = new ArrayList<>();
+        StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+
+        // 당시 동일 타입 물리적 공실
+        List<Room> physicalAvailableRooms = roomRepository.findAll().stream()
+                .filter(r -> r.getRoomType() == reservation.getBookedRoomType())
+                .filter(r -> r.isAvailable(targetPeriod))
+                .toList();
+
+        for (String requestedTagCode : tagPref.preferredTags()) {
+            Optional<RoomTag> tagOpt = tagRepository.findByCode(requestedTagCode);
+
+            if (tagOpt.isPresent() && tagOpt.get().strictness().isHard()) {
+                RoomTag hardTag = tagOpt.get();
+
+                if (!assignedRoom.hasTag(hardTag.code())) {
+                    long physicalMatchCount = physicalAvailableRooms.stream()
+                            .filter(r -> r.hasTag(hardTag.code()))
+                            .count();
+
+                    int holdQuota = quotaPolicy.getTagHoldQuota(hardTag.code());
+
+                    String detailReason;
+                    if (physicalMatchCount > 0 && physicalMatchCount <= holdQuota) {
+                        detailReason = String.format("물리적 공실(%d실)이 존재하나 호텔 안전 쿼터(Hold Quota: %d실)에 의해 차선 배정됨",
+                                physicalMatchCount, holdQuota);
+                    } else {
+                        detailReason = "해당 필수 요청 조건을 충족하는 객실 매진으로 차선 객실에 배정됨";
+                    }
+
+                    alerts.add(new AssignmentAlert(
+                            reservation,
+                            assignedRoom.getRoomNumber(),
+                            hardTag.name(),
+                            detailReason
+                    ));
+                }
+            }
+        }
+
+        return alerts;
+    }
+
     private boolean isRoomAllocatableUnderQuota(Room room, List<Room> sameTypeAvailableRooms, TagPreference tagPref) {
         for (String roomTag : room.getTags()) {
-            int holdQuota = tagQuotaPolicy.getHoldQuota(roomTag);
+            int holdQuota = quotaPolicy.getTagHoldQuota(roomTag);
             if (holdQuota <= 0) continue;
 
             long remainingTagRooms = sameTypeAvailableRooms.stream()
@@ -91,7 +146,6 @@ public class RoomAssigner {
                     .count();
 
             if (remainingTagRooms <= holdQuota) {
-                // 이 태그를 고객이 명시적으로 요청하지 않았다면 킵 객실 보호를 위해 배정 차단
                 if (tagPref == null || !tagPref.preferredTags().contains(roomTag)) {
                     return false;
                 }
@@ -100,25 +154,16 @@ public class RoomAssigner {
         return true;
     }
 
-    /**
-     * [오류 1 수정] 점수 이중 합산 및 승수 중복 증폭 제거:
-     * TagPreference가 활성화되어 있다면 TagScoringEngine 중심 채점,
-     * 비어있다면 레거시 GuestPreference 중심 채점으로 단일화
-     */
     public int calculateScore(Room room, GuestPreference pref, TagPreference tagPref, int stayNights) {
         int totalScore = 0;
 
         if (tagPref != null && !tagPref.isEmpty()) {
-            // 태그 엔진 채점 (연박 가중치 1.3배 포함)
             totalScore += tagScoringEngine.calculateScore(room, tagPref, stayNights);
         } else {
-            // 레거시 룰 채점 (태그 미사용 시 호환용)
             totalScore += calculateScore(room, pref, stayNights);
         }
 
-        // 보수적 층수 안배 가감점 적용
         totalScore += calculateConservativeFloorAdjustment(room, pref, tagPref, stayNights);
-
         return totalScore;
     }
 
@@ -129,14 +174,9 @@ public class RoomAssigner {
                         || tagPref.preferredTags().contains(RoomTag.VIEW_TOKYO_TOWER.code())
         ));
 
-        // 고층 요청이 없고 5박 미만 단기 투숙객
         if (!requestedHighFloor && stayNights < 5) {
-            if (room.getFloor() >= 10) {
-                return -25; // 상층부 룸 보존 페널티
-            }
-            if (stayNights <= 2 && room.getFloor() <= 6) {
-                return 15;  // 저층 집적 선소진 보너스
-            }
+            if (room.getFloor() >= 10) return -25;
+            if (stayNights <= 2 && room.getFloor() <= 6) return 15;
         }
 
         return 0;
@@ -179,7 +219,7 @@ public class RoomAssigner {
         return baseScore;
     }
 
-    public TagQuotaPolicy getTagQuotaPolicy() {
-        return tagQuotaPolicy;
+    public QuotaPolicy getQuotaPolicy() {
+        return quotaPolicy;
     }
 }
