@@ -74,21 +74,21 @@ public class RoomAssigner {
         GuestPreference pref = reservation.getPreference();
         int stayNights = reservation.getStayNights();
 
-        // 4. Soft Scoring 최적 객실 선별
-        Optional<Room> bestRoomOpt = allocatableCandidates.stream()
-                .max(Comparator.comparingInt(room -> calculateScore(room, pref, tagPref, stayNights)));
+        // 4. 점수 높은 순으로 정렬 후 원자적 점유(tryBookPeriod) 시도 (동시성 경쟁 시 차선 객실 자동 획득)
+        List<Room> sortedCandidates = allocatableCandidates.stream()
+                .sorted(Comparator.comparingInt((Room room) -> calculateScore(room, pref, tagPref, stayNights)).reversed())
+                .toList();
 
-        bestRoomOpt.ifPresent(bestRoom -> {
-            bestRoom.bookPeriod(targetPeriod);
-            reservation.assignRoom(bestRoom.getRoomNumber());
-        });
+        for (Room candidate : sortedCandidates) {
+            if (candidate.tryBookPeriod(targetPeriod)) {
+                reservation.assignRoom(candidate.getRoomNumber());
+                return Optional.of(candidate);
+            }
+        }
 
-        return bestRoomOpt;
+        return Optional.empty();
     }
 
-    /**
-     * 특정 투숙 기간 동안 매일의 잔여 공실 중 가장 적은 날(병목 일자)의 공실 수 계산
-     */
     public long calculateMinDailyVacant(RoomType type, LocalDate checkIn, int nights) {
         long minCount = Long.MAX_VALUE;
         for (int i = 0; i < nights; i++) {
@@ -103,9 +103,6 @@ public class RoomAssigner {
         return minCount == Long.MAX_VALUE ? 0 : minCount;
     }
 
-    /**
-     * 고객이 요구한 HARD(필수) 태그 미충족 시 사유 판별하여 Alert 생성
-     */
     public List<AssignmentAlert> checkHardRequestAlerts(Reservation reservation, Room assignedRoom) {
         if (reservation == null || assignedRoom == null) return List.of();
 
