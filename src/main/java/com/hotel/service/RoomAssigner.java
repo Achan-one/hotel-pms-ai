@@ -222,4 +222,7 @@ public class RoomAssigner {
     public QuotaPolicy getQuotaPolicy() {
         return quotaPolicy;
     }
+    public RoomRepository getRoomRepository() {
+        return roomRepository;
+    }
 }
