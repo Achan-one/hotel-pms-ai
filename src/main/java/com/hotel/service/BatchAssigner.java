@@ -2,6 +2,8 @@ package com.hotel.service;
 
 import com.hotel.domain.Reservation;
 import com.hotel.domain.Room;
+import com.hotel.domain.TagQuotaPolicy;
+import com.hotel.repository.RoomRepository;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -13,9 +15,6 @@ public class BatchAssigner {
 
     private final RoomAssigner roomAssigner;
 
-    // 1순위: 숙박 일수 내림차순 (연박 우선)
-    // 2순위: 선호도 제약 조건 개수 내림차순 (까다로운 조건 우선)
-    // 3순위: 예약 번호 오름차순 (FIFO 기본 보장)
     private static final Comparator<Reservation> RESERVATION_PRIORITY_COMPARATOR = Comparator
             .comparingInt(Reservation::getStayNights).reversed()
             .thenComparing((Reservation r) -> r.getPreference().getConstraintCount(), Comparator.reverseOrder())
@@ -25,18 +24,16 @@ public class BatchAssigner {
         this.roomAssigner = Objects.requireNonNull(roomAssigner, "roomAssigner는 필수입니다.");
     }
 
-    /**
-     * 대량의 예약 목록을 우선순위 규칙에 맞춰 정렬한 뒤 일괄 배정합니다.
-     *
-     * @param reservations 당일 배정 대상 예약 목록
-     * @return 성공 및 실패 목록을 포함한 BatchAssignmentResult
-     */
+    // [신규 편의 생성자] RoomRepository와 TagQuotaPolicy 주입 지원
+    public BatchAssigner(RoomRepository roomRepository, TagQuotaPolicy tagQuotaPolicy) {
+        this(new RoomAssigner(roomRepository, tagQuotaPolicy));
+    }
+
     public BatchAssignmentResult assignAll(List<Reservation> reservations) {
         if (reservations == null || reservations.isEmpty()) {
             return new BatchAssignmentResult(List.of(), List.of());
         }
 
-        // 원본 리스트 불변성 유지를 위해 복사 후 우선순위 정렬
         List<Reservation> prioritizedQueue = new ArrayList<>(reservations);
         prioritizedQueue.sort(RESERVATION_PRIORITY_COMPARATOR);
 
@@ -48,11 +45,15 @@ public class BatchAssigner {
             if (assignedRoom.isPresent()) {
                 successes.add(reservation);
             } else {
-                String reason = String.format("[%s] 타입 객실 인벤토리 소진 (만실)", reservation.getBookedRoomType().getDescription());
+                String reason = String.format("[%s] 타입 객실 인벤토리 소진 (만실/홀딩)", reservation.getBookedRoomType().getDescription());
                 failures.add(new BatchAssignmentResult.FailedAssignmentItem(reservation, reason));
             }
         }
 
         return new BatchAssignmentResult(successes, failures);
+    }
+
+    public RoomAssigner getRoomAssigner() {
+        return roomAssigner;
     }
 }

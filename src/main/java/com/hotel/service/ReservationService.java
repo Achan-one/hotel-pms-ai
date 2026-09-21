@@ -19,22 +19,30 @@ public class ReservationService {
     private final BatchAssigner batchAssigner;
     private final RoomChangeService roomChangeService;
     private final RoomRepository roomRepository;
+    private final TagQuotaPolicy tagQuotaPolicy;
 
+    // [기존 레거시 및 테스트 호환 생성자]
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser) {
+        this(reservationRepository, roomRepository, aiParser, new TagQuotaPolicy());
+    }
+
+    // [오류 2 해결: TagQuotaPolicy 정식 주입 생성자]
+    public ReservationService(ReservationRepository reservationRepository,
+                              RoomRepository roomRepository,
+                              AiPreferenceParser aiParser,
+                              TagQuotaPolicy tagQuotaPolicy) {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.reservationRepository = Objects.requireNonNull(reservationRepository, "reservationRepository는 필수입니다.");
+        this.tagQuotaPolicy = (tagQuotaPolicy != null) ? tagQuotaPolicy : new TagQuotaPolicy();
         this.validator = new ReservationValidator();
         this.aiParser = (aiParser != null) ? aiParser : new AiPreferenceParser();
-        this.batchAssigner = new BatchAssigner(new RoomAssigner(roomRepository));
+        // 쿼터 정책이 주입된 RoomAssigner를 BatchAssigner에 연결
+        this.batchAssigner = new BatchAssigner(new RoomAssigner(roomRepository, this.tagQuotaPolicy));
         this.roomChangeService = new RoomChangeService(roomRepository);
     }
 
-    /**
-     * [1. 외부 예약 접수]
-     * 비즈니스 유효성 검증 통과 건만 PENDING 상태로 장부에 적재
-     */
     public List<Reservation> receiveReservations(List<Reservation> rawReservations) {
         if (rawReservations == null || rawReservations.isEmpty()) {
             return List.of();
@@ -45,33 +53,24 @@ public class ReservationService {
         return validList;
     }
 
-    /**
-     * [2. 당일 기준 일괄 AI 분석 및 우선순위 자동 배정]
-     * PENDING 예약 대상 단 1회 Gemini 호출 -> 동적 태그 선호도(TagPreference) 주입 -> BatchAssigner 실행 -> ASSIGNED 갱신
-     */
     public BatchAssignmentResult runDailyBatchAssignment(LocalDate checkInDate) {
         Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
 
-        // 1. 해당 일자의 미배정(PENDING) 예약 조회
         List<Reservation> pendingList = reservationRepository.findUnassignedByCheckInDate(checkInDate);
         if (pendingList.isEmpty()) {
             return new BatchAssignmentResult(List.of(), List.of());
         }
 
-        // 2. 단 1회의 Gemini API 호출로 메모로부터 태그 선호도(Map<String, TagPreference>) 일괄 추출
         Map<String, TagPreference> parsedTagPreferences = aiParser.parseBatch(pendingList);
 
-        // 3. 파싱된 태그 선호도를 각 예약에 주입
         List<Reservation> enrichedList = new ArrayList<>();
         for (Reservation rsv : pendingList) {
             TagPreference tagPref = parsedTagPreferences.getOrDefault(rsv.getReservationId(), TagPreference.empty());
             enrichedList.add(rsv.withTagPreference(tagPref));
         }
 
-        // 4. 태그 및 조건 우선순위 기반 일괄 배정 엔진 실행
         BatchAssignmentResult result = batchAssigner.assignAll(enrichedList);
 
-        // 5. 배정 성공한 예약들을 장부(ReservationRepository)에 저장 (상태: ASSIGNED)
         for (Reservation success : result.getSuccessfulAssignments()) {
             reservationRepository.save(success);
         }
@@ -79,10 +78,6 @@ public class ReservationService {
         return result;
     }
 
-    /**
-     * [3. 프론트 데스크 키 발급 및 체크인]
-     * ASSIGNED / DUE_IN -> CHECKED_IN 상태 전이
-     */
     public void processCheckIn(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
 
@@ -94,10 +89,6 @@ public class ReservationService {
         reservationRepository.save(reservation);
     }
 
-    /**
-     * [4. 수동 룸 체인지 (Room Move)]
-     * 잔여 기간 스케줄 분할 이전 및 룸 랙 상태 전이 후 장부 동기화
-     */
     public RoomChangeResult processRoomChange(RoomChangeRequest request) {
         Objects.requireNonNull(request, "RoomChangeRequest 요청은 필수입니다.");
         Reservation reservation = findReservationOrThrow(request.reservationId());
@@ -111,9 +102,6 @@ public class ReservationService {
         return result;
     }
 
-    /**
-     * 기존 2개 파라미터 호출 호환 편의 메서드
-     */
     public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
         Reservation reservation = findReservationOrThrow(reservationId);
         LocalDate moveDate = LocalDate.now();
@@ -121,9 +109,6 @@ public class ReservationService {
         return processRoomChange(request);
     }
 
-    /**
-     * [5. 프론트 데스크 체크아웃]
-     */
     public void processCheckOut(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
         reservation.checkOut();
@@ -138,16 +123,10 @@ public class ReservationService {
         }
     }
 
-    /**
-     * [6. 다조건 통합 검색]
-     */
     public List<Reservation> searchReservations(ReservationSearchCondition condition) {
         return reservationRepository.search(condition);
     }
 
-    /**
-     * 단건 예약 조회
-     */
     public Optional<Reservation> getReservation(String reservationId) {
         return reservationRepository.findById(reservationId);
     }
@@ -160,15 +139,10 @@ public class ReservationService {
                 .orElseThrow(() -> new NoSuchElementException("예약 원장에서 해당 예약을 찾을 수 없습니다: " + reservationId));
     }
 
-    /**
-     * [배정 취소 (Unassign)]
-     */
     public void cancelRoomAssignment(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
 
-        if (!reservation.isAssigned()) {
-            return;
-        }
+        if (!reservation.isAssigned()) return;
 
         if (reservation.getStatus().isInHouse()) {
             throw new IllegalStateException("이미 입실(체크인)한 고객의 객실 배정은 직접 취소할 수 없습니다. (룸 체인지를 이용하세요)");
@@ -187,9 +161,6 @@ public class ReservationService {
         reservationRepository.save(reservation);
     }
 
-    /**
-     * [예약 취소 (Cancel)]
-     */
     public void cancelReservation(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
 
@@ -207,5 +178,9 @@ public class ReservationService {
 
         reservation.cancelReservation();
         reservationRepository.save(reservation);
+    }
+
+    public TagQuotaPolicy getTagQuotaPolicy() {
+        return tagQuotaPolicy;
     }
 }
