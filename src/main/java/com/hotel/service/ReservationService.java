@@ -145,7 +145,12 @@ public class ReservationService {
         String roomNumber = reservation.getAssignedRoomNumber();
         StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
         if (roomNumber != null) {
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> room.cancelPeriod(stayPeriod));
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+                room.cancelPeriod(stayPeriod);
+                if (!room.isAssigned()) {
+                    room.setStatus(RoomStatus.VACANT);
+                }
+            });
         }
         reservation.cancelAssignment();
         reservationRepository.save(reservation);
@@ -159,7 +164,12 @@ public class ReservationService {
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
             StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> room.cancelPeriod(stayPeriod));
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+                room.cancelPeriod(stayPeriod);
+                if (!room.isAssigned()) {
+                    room.setStatus(RoomStatus.VACANT);
+                }
+            });
         }
         reservation.cancelReservation();
         reservationRepository.save(reservation);

@@ -119,11 +119,7 @@ public class ReservationRepository {
             stream = stream.filter(r -> r.getGuestName() != null && r.getGuestName().toLowerCase().contains(nameQuery));
         }
 
-        // 3. 체크인 날짜 일치 필터
-        if (condition.checkInDate() != null) {
-            stream = stream.filter(r -> condition.checkInDate().equals(r.getCheckInDate()));
-        }
-        // 3-1. 체크인 일자 일치 필터
+        // 3-1. 체크인 날짜 일치 필터
         if (condition.checkInDate() != null) {
             stream = stream.filter(r -> condition.checkInDate().equals(r.getCheckInDate()));
         }
