@@ -14,16 +14,6 @@ import com.hotel.service.validator.ReservationValidator;
 import java.time.LocalDate;
 import java.util.*;
 
-/**
- * 호텔 예약 전산 라이프사이클(인입, 자동 배정, 체크인, 룸 체인지, 정산 체크아웃, 취소)을 관장하는 핵심 도메인 서비스.
- *
- * <p>외부 채널 매니저(TL-Lincoln, ONDA)의 인바운드 전문 수신부터 하우스키핑 룸 랙과의 상태 동기화를 보장합니다.</p>
- *
- * @author PMS Core Engine Team
- * @see Reservation
- * @see RoomAssigner
- * @see BatchAssigner
- */
 public class ReservationService {
 
     private final ReservationRepository reservationRepository;
@@ -34,18 +24,12 @@ public class ReservationService {
     private final RoomRepository roomRepository;
     private final QuotaPolicy quotaPolicy;
 
-    /**
-     * 기본 태그 저장소 및 기본 쿼터 정책을 사용하는 편의 생성자.
-     */
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser) {
         this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), new QuotaPolicy());
     }
 
-    /**
-     * 외부 주입 쿼터 정책을 적용하는 생성자.
-     */
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser,
@@ -53,9 +37,6 @@ public class ReservationService {
         this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), quotaPolicy);
     }
 
-    /**
-     * 모든 인프라 의존성을 주입받는 마스터 생성자.
-     */
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser,
@@ -99,10 +80,6 @@ public class ReservationService {
         }
     }
 
-    /**
-     * 지정된 체크인 일자의 미배정(PENDING) 예약 건 일괄 자동 배정
-     * - 저장 실패 시 스케줄 즉시 회수 (보상 롤백 보장)
-     */
     public BatchAssignmentResult runDailyBatchAssignment(LocalDate checkInDate) {
         Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
         List<Reservation> pendingList = reservationRepository.findUnassignedByCheckInDate(checkInDate);
@@ -120,14 +97,10 @@ public class ReservationService {
 
         BatchAssignmentResult result = batchAssigner.assignAll(enrichedList);
 
-        // [원자성 보상 트랜잭션] 저장 실패 시 객실 스케줄 원상 복구
-        List<Reservation> successfullySaved = new ArrayList<>();
         for (Reservation success : result.getSuccessfulAssignments()) {
             try {
                 reservationRepository.save(success);
-                successfullySaved.add(success);
             } catch (Exception e) {
-                // 보상 트랜잭션: 저장 튕긴 예약의 객실 점유 즉시 반납
                 String roomNumber = success.getAssignedRoomNumber();
                 StayPeriod period = new StayPeriod(success.getCheckInDate(), success.getStayNights());
                 if (roomNumber != null) {
@@ -168,24 +141,16 @@ public class ReservationService {
         return processRoomChange(request);
     }
 
-    /**
-     * 당일 시스템 일자 기준 체크아웃 (기본 편의 메서드)
-     */
     public void processCheckOut(String reservationId) {
         processCheckOut(reservationId, LocalDate.now());
     }
 
-    /**
-     * 특정 영업일자(Business Date) 기준 체크아웃 처리
-     * - 미정산 상태 사전 검증
-     * - 객실 미래 스케줄 회수 및 하우스키핑 OUT 처리 후 예약 원장 갱신
-     */
     public void processCheckOut(String reservationId, LocalDate checkOutDate) {
         LocalDate effectiveDate = (checkOutDate != null) ? checkOutDate : LocalDate.now();
         Reservation reservation = findReservationOrThrow(reservationId);
 
-        // 1. 투숙 및 미정산 상태 검증 (정산 미완료 시 즉시 차단)
-        reservation.checkOut();
+        // 1. 투숙 및 미정산 상태 검증 후 실제 체크아웃 날짜 주입
+        reservation.checkOut(effectiveDate);
 
         // 2. 객실 스케줄 회수 및 청소 대기(OUT) 전이
         String roomNumber = reservation.getAssignedRoomNumber();
@@ -219,7 +184,8 @@ public class ReservationService {
         if (roomNumber != null) {
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
                 room.cancelPeriod(stayPeriod);
-                if (!room.isAssigned()) {
+                // [안전핀] 고장(BREAK)이나 점검(BLOCKED) 중인 객실은 VACANT로 복구하지 않고 유지
+                if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
                     room.setStatus(RoomStatus.VACANT);
                 }
             });
@@ -238,7 +204,8 @@ public class ReservationService {
             StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
                 room.cancelPeriod(stayPeriod);
-                if (!room.isAssigned()) {
+                // [안전핀] 고장(BREAK)이나 점검(BLOCKED) 중인 객실은 VACANT로 복구하지 않고 유지
+                if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
                     room.setStatus(RoomStatus.VACANT);
                 }
             });

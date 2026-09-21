@@ -22,21 +22,31 @@ public class FloorStatusService {
     public FloorMapResponseDto getFloorMatrix(LocalDate targetDate, List<Reservation> activeReservations) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
 
-        // 방 번호 기준으로 해당 날짜에 머무는 유효 예약 매핑 (체크아웃/취소 제외)
+        // 방 번호 기준으로 해당 날짜에 머무는 유효 예약 매핑 (현재 호실 + 룸체인지 이전 호실 이력 포함)
         Map<String, Reservation> roomToResMap = new HashMap<>();
         if (activeReservations != null) {
             for (Reservation res : activeReservations) {
-                if (res.isAssigned() && res.getCheckInDate() != null) {
+                if (res.getCheckInDate() != null) {
                     LocalDate checkIn = res.getCheckInDate();
-                    LocalDate checkOut = res.getCheckOutDate();
-                    if (checkOut == null) {
-                        checkOut = checkIn.plusDays(res.getStayNights());
+                    LocalDate checkOut = (res.getActualCheckOutDate() != null) ? res.getActualCheckOutDate() : res.getCheckOutDate();
+
+                    // 1. 현재 배정된 호실 매핑
+                    if (res.isAssigned() && res.getAssignedRoomNumber() != null) {
+                        boolean isStayDuringDate = !date.isBefore(checkIn) && date.isBefore(checkOut);
+                        if (isStayDuringDate) {
+                            roomToResMap.put(res.getAssignedRoomNumber().trim(), res);
+                        }
                     }
 
-                    // [checkIn, checkOut) 구간 검증: checkIn <= date && date < checkOut
-                    boolean isStayDuringDate = !date.isBefore(checkIn) && date.isBefore(checkOut);
-                    if (isStayDuringDate && res.getAssignedRoomNumber() != null) {
-                        roomToResMap.put(res.getAssignedRoomNumber().trim(), res);
+                    // 2. [룸 무브 역추적 방어] 이전 호실(previousRoomNumber)에 머물렀던 과거 날짜도 유령 객실이 되지 않도록 고객 정보 매핑
+                    if (res.getPreviousRoomNumber() != null && !date.isBefore(checkIn)) {
+                        String prevRoom = res.getPreviousRoomNumber().trim();
+                        // 이전 객실에 여전히 스케줄 이력(bookedPeriods)이 남아있는 경우 고객 정보 연결
+                        roomRepository.findByRoomNumber(prevRoom).ifPresent(r -> {
+                            if (r.isOccupiedOn(date)) {
+                                roomToResMap.put(prevRoom, res);
+                            }
+                        });
                     }
                 }
             }
@@ -55,19 +65,15 @@ public class FloorStatusService {
             String stayPeriodStr = null;
 
             if (matchedRes != null) {
-                // 당일 유효 활성 예약이 있는 경우: 인하우스 투숙 중이면 OCCUPIED, 도착 전이면 ASSIGNED
                 status = matchedRes.getStatus().isInHouse() ? RoomStatus.OCCUPIED : RoomStatus.ASSIGNED;
                 rsvId = matchedRes.getReservationId();
                 guestName = matchedRes.getGuestName();
                 stayPeriodStr = String.format("%s ~ %s", matchedRes.getCheckInDate(), matchedRes.getCheckOutDate());
             } else if (room.getStatus() != RoomStatus.VACANT) {
-                // 당일 유효 예약이 없는데 방 상태가 OUT, CLEANING, BREAK, BLOCKED 등 운영 상태인 경우 해당 물리 상태 우선
                 status = room.getStatus();
             } else if (room.isOccupiedOn(date)) {
-                // 사전 재실 스케줄이나 기타 투숙 스케줄이 존재하는 경우
                 status = RoomStatus.OCCUPIED;
             } else {
-                // 그 외에는 청소 완료된 공실
                 status = RoomStatus.VACANT;
             }
 

@@ -104,7 +104,7 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 3. 당일 출발 예정자 명단 (Departures List)
+    // 3. 당일 출발 예정자 명단 (Departures List) - 조기 체크아웃 포함 방어
     // =========================================================================
     public List<DepartureReportItemDto> getDepartureList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
@@ -113,7 +113,8 @@ public class ReportExportService {
         );
 
         return allReservations.stream()
-                .filter(r -> date.equals(r.getCheckOutDate()))
+                // [조기 퇴실 방어] 원래 퇴실 예정일이 오늘이거나, 실제 오늘 퇴실한 고객 모두 포착
+                .filter(r -> date.equals(r.getCheckOutDate()) || date.equals(r.getActualCheckOutDate()))
                 .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
                 .map(r -> {
                     long balanceDue = 0L;
@@ -121,12 +122,16 @@ public class ReportExportService {
                         balanceDue = r.getPaymentLedger().getTotalDue();
                     }
 
+                    LocalDate effectiveCheckOut = (r.getActualCheckOutDate() != null)
+                            ? r.getActualCheckOutDate()
+                            : r.getCheckOutDate();
+
                     return new DepartureReportItemDto(
                             r.getReservationId(),
                             r.getGuestName(),
                             r.isAssigned() ? r.getAssignedRoomNumber() : "미배정",
                             r.getCheckInDate(),
-                            r.getCheckOutDate(),
+                            effectiveCheckOut,
                             r.getStatus(),
                             balanceDue,
                             false
@@ -152,7 +157,7 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 4. 재실 숙박자 명단 (In-House Guest List)
+    // 4. 재실 숙박자 명단 (In-House Guest List) - 체류일차 상한 보정
     // =========================================================================
     public List<InHouseGuestDto> getInHouseGuestList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
@@ -162,7 +167,10 @@ public class ReportExportService {
                 .filter(r -> r.getStatus().isInHouse() && r.isAssigned())
                 .map(r -> {
                     int floor = Integer.parseInt(r.getAssignedRoomNumber().substring(0, 2));
-                    int currentStayDay = (int) ChronoUnit.DAYS.between(r.getCheckInDate(), date) + 1;
+                    int calculatedDay = (int) ChronoUnit.DAYS.between(r.getCheckInDate(), date) + 1;
+                    // [상한 보정] 총 박수를 넘어서는 이상치 방지
+                    int currentStayDay = Math.min(r.getStayNights(), Math.max(1, calculatedDay));
+
                     return new InHouseGuestDto(
                             r.getAssignedRoomNumber(),
                             floor,
@@ -215,13 +223,11 @@ public class ReportExportService {
 
             int oos = (int) typeRooms.stream().filter(r -> r.getStatus().isOutOfService()).count();
 
-            // 당일 체크인이 아닌 이전부터 묵고 있는 순수 연박 재실자 수
             int stayover = (int) inHouseGuests.stream()
                     .filter(r -> r.getBookedRoomType() == type)
                     .filter(r -> r.getCheckInDate().isBefore(date))
                     .count();
 
-            // 당일 신규 도착 예정자 수 (취소 제외)
             int arrivalCount = (int) arrivals.stream()
                     .filter(r -> r.getBookedRoomType() == type)
                     .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
@@ -231,14 +237,11 @@ public class ReportExportService {
             long minDailyVacant = roomAssigner.calculateMinDailyVacant(type, date, 1);
             int sellable = (int) Math.max(0, minDailyVacant - hold);
 
-            // 해당 일자 밤에 스케줄이 점유된 실제 객실 수
             long occupiedScheduleRooms = typeRooms.stream()
                     .filter(r -> !r.getStatus().isOutOfService())
                     .filter(r -> !r.isAvailable(singleDay))
                     .count();
 
-            // [호텔 룸 밸런스 회계 등식]
-            // 물리 총 객실 수(total) == 점검(OOS) + 스케줄점유객실 + 스케줄공실(minDailyVacant)
             boolean balanced = (total == (oos + (int) occupiedScheduleRooms + (int) minDailyVacant));
 
             report.add(new RoomBalanceReportDto(
@@ -342,7 +345,7 @@ public class ReportExportService {
                 null, null, null, null, null, null, null
         );
         Set<String> todayDepartureRoomNumbers = reservationRepository.search(departureCondition).stream()
-                .filter(r -> r.isAssigned() && date.equals(r.getCheckOutDate()))
+                .filter(r -> r.isAssigned() && (date.equals(r.getCheckOutDate()) || date.equals(r.getActualCheckOutDate())))
                 .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
                 .map(Reservation::getAssignedRoomNumber)
                 .collect(Collectors.toSet());

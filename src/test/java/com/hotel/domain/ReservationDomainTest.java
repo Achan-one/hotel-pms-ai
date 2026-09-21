@@ -69,12 +69,12 @@ class ReservationDomainTest {
         rsv.startStaying();
 
         // 정산 없이 체크아웃 시도 시 예외 발생 검증
-        IllegalStateException ex = assertThrows(IllegalStateException.class, rsv::checkOut);
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> rsv.checkOut());
         assertTrue(ex.getMessage().contains("미정산 금액"));
 
-        // 정산 완료 처리 후 체크아웃 재시도 -> 성공
+        // 정산 완료 처리 후 체크아웃 재시도 -> 성공 (람다 표현식으로 명시)
         payment.settle();
-        assertDoesNotThrow(rsv::checkOut);
+        assertDoesNotThrow(() -> rsv.checkOut());
         assertEquals(ReservationStatus.CHECKED_OUT, rsv.getStatus());
     }
 
@@ -100,11 +100,11 @@ class ReservationDomainTest {
         assertEquals(12_000, payment.getTotalDue());
 
         // 미정산 부대비용으로 인한 체크아웃 차단 검증
-        assertThrows(IllegalStateException.class, rsv::checkOut);
+        assertThrows(IllegalStateException.class, () -> rsv.checkOut());
 
         // 프론트 데스크 결제 완료 처리
         payment.settle();
-        rsv.checkOut();
+        assertDoesNotThrow(() -> rsv.checkOut());
         assertEquals(ReservationStatus.CHECKED_OUT, rsv.getStatus());
     }
 

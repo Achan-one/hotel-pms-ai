@@ -15,7 +15,7 @@ public class Reservation {
     private final String rawRequestText;
     private final GuestPreference preference;
 
-    // [신규] 태그 지향 아키텍처: AI가 스위치를 켠 동적 태그 선호도
+    // 태그 지향 아키텍처: AI가 스위치를 켠 동적 태그 선호도
     private final TagPreference tagPreference;
 
     // 2. 호텔 실무 확장 필드 (채널, 조식, 정산, 도착/출발 시간)
@@ -28,6 +28,7 @@ public class Reservation {
     // 3. 동적 상태 필드
     private String assignedRoomNumber;
     private String previousRoomNumber;      // 룸 체인지 이전 호실 이력 추적 필드
+    private LocalDate actualCheckOutDate;   // 실제 체크아웃 발생일자 (조기 퇴실 및 연장 감사용)
     private ReservationStatus status;
 
     // ==========================================
@@ -71,6 +72,7 @@ public class Reservation {
 
         this.assignedRoomNumber = null;
         this.previousRoomNumber = null;
+        this.actualCheckOutDate = null;
         this.status = ReservationStatus.PENDING;
     }
 
@@ -78,9 +80,6 @@ public class Reservation {
     // 편의 오버로딩 생성자 (레거시 및 기존 코드 100% 호환)
     // ==========================================
 
-    /**
-     * [레거시 마스터 생성자 호환] TagPreference가 없는 경우 빈 객체로 위임
-     */
     public Reservation(String reservationId,
                        String guestName,
                        RoomType bookedRoomType,
@@ -97,18 +96,12 @@ public class Reservation {
                 rawRequestText, preference, TagPreference.empty(), channelInfo, breakfastOption, paymentLedger, estimatedArrivalTime);
     }
 
-    /**
-     * [레거시 6개 인자] 체크인 일자 생략 시 오늘(LocalDate.now()) 기준 1인 투숙
-     */
     public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
                        int stayNights, String rawRequestText, GuestPreference preference) {
         this(reservationId, guestName, bookedRoomType, LocalDate.now(), stayNights, 1,
                 rawRequestText, preference, TagPreference.empty(), null, null, null, LocalTime.of(15, 0));
     }
 
-    /**
-     * [레거시 7개 인자] 날짜 명시 기본 생성자
-     */
     public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
                        LocalDate checkInDate, int stayNights, String rawRequestText, GuestPreference preference) {
         this(reservationId, guestName, bookedRoomType, checkInDate, stayNights, 1,
@@ -132,9 +125,6 @@ public class Reservation {
         this.status = ReservationStatus.PENDING;
     }
 
-    /**
-     * 오늘 도착 예정(DUE_IN)으로 마킹
-     */
     public void markDueIn() {
         if (this.assignedRoomNumber == null) {
             throw new IllegalStateException("객실이 배정되지 않은 상태에서는 도착 예정 단계로 변경할 수 없습니다.");
@@ -146,9 +136,6 @@ public class Reservation {
         markDueIn();
     }
 
-    /**
-     * 실제 키 발급 및 체크인 입실 처리 (DUE_IN / ASSIGNED -> CHECKED_IN)
-     */
     public void checkIn() {
         if (this.assignedRoomNumber == null) {
             throw new IllegalStateException("객실이 배정되지 않은 예약은 체크인(입실)할 수 없습니다.");
@@ -163,9 +150,6 @@ public class Reservation {
         checkIn();
     }
 
-    /**
-     * 룸 체인지 실행 시 현재 호실 번호만 최신화 (상태는 투숙중 CHECKED_IN 유지)
-     */
     public void changeRoom(String newRoomNumber) {
         if (newRoomNumber == null || newRoomNumber.isBlank()) {
             throw new IllegalArgumentException("이동할 신규 객실 번호가 올바르지 않습니다.");
@@ -175,8 +159,15 @@ public class Reservation {
     }
 
     public void checkOut() {
+        checkOut(LocalDate.now());
+    }
+
+    /**
+     * 실제 발생 영업일자를 주입받는 체크아웃 메서드
+     */
+    public void checkOut(LocalDate effectiveDate) {
         if (!this.status.isInHouse()) {
-            throw new IllegalStateException("현재 숙박 중(CHECKED_IN 또는 ROOM_CHANGED)인 고객만 체크아웃할 수 있습니다.");
+            throw new IllegalStateException("현재 숙박 중인 고객만 체크아웃할 수 있습니다.");
         }
 
         long balance = this.paymentLedger.getBalance();
@@ -187,6 +178,7 @@ public class Reservation {
             throw new IllegalStateException("초과 수납/환불 대상 금액(" + Math.abs(balance) + "원)이 남아있어 체크아웃할 수 없습니다.");
         }
 
+        this.actualCheckOutDate = (effectiveDate != null) ? effectiveDate : LocalDate.now();
         this.status = ReservationStatus.CHECKED_OUT;
     }
 
@@ -213,7 +205,7 @@ public class Reservation {
                 this.guestCount,
                 this.rawRequestText,
                 newPreference,
-                this.tagPreference, // 기존 태그 선호도 보존
+                this.tagPreference,
                 this.channelInfo,
                 this.breakfastOption,
                 this.paymentLedger,
@@ -222,13 +214,11 @@ public class Reservation {
         cloned.status = this.status;
         cloned.assignedRoomNumber = this.assignedRoomNumber;
         cloned.previousRoomNumber = this.previousRoomNumber;
+        cloned.actualCheckOutDate = this.actualCheckOutDate;
         cloned.lateCheckOutTime = this.lateCheckOutTime;
         return cloned;
     }
 
-    /**
-     * [신규 불변 복제] AI가 분석한 TagPreference를 주입한 신규 Reservation 생성
-     */
     public Reservation withTagPreference(TagPreference newTagPreference) {
         Reservation cloned = new Reservation(
                 this.reservationId,
@@ -239,7 +229,7 @@ public class Reservation {
                 this.guestCount,
                 this.rawRequestText,
                 this.preference,
-                newTagPreference, // 신규 태그 선호도 반영
+                newTagPreference,
                 this.channelInfo,
                 this.breakfastOption,
                 this.paymentLedger,
@@ -248,6 +238,7 @@ public class Reservation {
         cloned.status = this.status;
         cloned.assignedRoomNumber = this.assignedRoomNumber;
         cloned.previousRoomNumber = this.previousRoomNumber;
+        cloned.actualCheckOutDate = this.actualCheckOutDate;
         cloned.lateCheckOutTime = this.lateCheckOutTime;
         return cloned;
     }
@@ -273,6 +264,7 @@ public class Reservation {
     public LocalTime getLateCheckOutTime() { return lateCheckOutTime; }
     public String getAssignedRoomNumber() { return assignedRoomNumber; }
     public String getPreviousRoomNumber() { return previousRoomNumber; }
+    public LocalDate getActualCheckOutDate() { return actualCheckOutDate; }
     public ReservationStatus getStatus() { return status; }
     public void setStatus(ReservationStatus status) { this.status = Objects.requireNonNull(status); }
 
@@ -291,19 +283,12 @@ public class Reservation {
 
     @Override
     public String toString() {
-        return String.format("[%s | %s | %s | %s~%s (%d박) | 채널:%s | 조식:%s | 상태:%s | 배정:%s%s | 태그:%s]",
-                reservationId,
-                guestName,
-                bookedRoomType.getDescription(),
-                checkInDate,
-                getCheckOutDate(),
-                stayNights,
-                channelInfo.channelType().getDescription(),
-                breakfastOption.isIncluded() ? (breakfastOption.getDailyBreakfastCount() + "인") : "불포함",
+        return String.format("[%s | %s | %s | %s~%s (%d박) | 상태:%s | 배정:%s%s]",
+                reservationId, guestName, bookedRoomType.getDescription(),
+                checkInDate, getCheckOutDate(), stayNights,
                 status.getTitle(),
                 isAssigned() ? (assignedRoomNumber + "호") : "미배정",
-                (previousRoomNumber != null) ? (" (이전: " + previousRoomNumber + "호)") : "",
-                (tagPreference != null && !tagPreference.isEmpty()) ? tagPreference.toString() : "없음"
+                (previousRoomNumber != null) ? (" (이전: " + previousRoomNumber + "호)") : ""
         );
     }
 }
