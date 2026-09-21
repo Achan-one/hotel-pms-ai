@@ -1,5 +1,10 @@
 package com.hotel;
 
+import com.hotel.channel.ChannelManagerAdapter;
+import com.hotel.channel.ChannelSyncService;
+import com.hotel.channel.dto.ChannelInventorySyncDto;
+import com.hotel.channel.onda.OndaChannelAdapter;
+import com.hotel.channel.tlx.TlxChannelAdapter;
 import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
@@ -22,12 +27,10 @@ public class Main {
         RoomRepository roomRepository = new RoomRepository();
         ReservationRepository reservationRepository = new ReservationRepository();
 
-        // 2. [통합 쿼터 정책] 초기 상수로 가동:
-        //    - 타입별 킵: 이그제큐티브 더블 1실, 슈페리어 트윈 2실, 레지덴셜 더블 2실
-        //    - 태그별 킵: 도쿄타워 뷰 2실, 배리어프리 1실
+        // 2. 통합 쿼터 정책 (타입 킵: 이그제큐티브 1실, 트윈 2실, 레지덴셜 2실 / 태그 킵: 타워뷰 2실, 배리어프리 1실)
         QuotaPolicy quotaPolicy = new QuotaPolicy();
 
-        // 3. [어드민 전용 태그 관리 서비스] 가동 및 태그 등록
+        // 3. 어드민 태그 서비스 및 기본 태그 등록
         AdminTagService adminTagService = new AdminTagService(tagRepository, quotaPolicy);
         registerAdminCustomTags(adminTagService, roomRepository);
 
@@ -37,18 +40,18 @@ public class Main {
         );
         FloorStatusService floorStatusService = new FloorStatusService(roomRepository);
 
+        // [신규] 채널 매니저 동기화 서비스 및 어댑터 초기화
+        ChannelSyncService channelSyncService = new ChannelSyncService(roomRepository, quotaPolicy);
+        ChannelManagerAdapter tlxAdapter = new TlxChannelAdapter();
+        ChannelManagerAdapter ondaAdapter = new OndaChannelAdapter();
+
         LocalDate today = LocalDate.of(2026, 9, 20);
 
         System.out.println("================================================================================");
-        System.out.println("🏨 [AI-Driven Hotel PMS Core Engine] 타입/태그 통합 쿼터 & 미충족 경고 시스템");
+        System.out.println("🏨 [AI-Driven Hotel PMS Core Engine] CMS(TLX/ONDA) 양방향 연동 & 쿼터 배정 시스템");
         System.out.println("   운영 기준 일자: " + today);
         System.out.println("   AI 엔진 설정: " + aiParser.getConfig());
         System.out.println("================================================================================\n");
-
-        System.out.println("🏷️ [호텔 관리자(ADMIN) 정의 실시간 객실 태그 카탈로그 (엄격도 포함)]");
-        System.out.println("--------------------------------------------------------------------------------");
-        System.out.print(tagRepository.buildPromptTagDictionary());
-        System.out.println("--------------------------------------------------------------------------------\n");
 
         System.out.println("🛡️ [호텔 관리자 정의 운영 보존 쿼터 (Safety Stock Hold)]");
         System.out.println("--------------------------------------------------------------------------------");
@@ -65,11 +68,58 @@ public class Main {
         System.out.printf("📌 [초기 객실 상태] 기존 투숙: %d실 / 배정 가능 공실: %d실%n%n",
                 preOccupied, 191 - preOccupied);
 
-        // 5. 50건 가상 예약 인입
-        List<Reservation> incomingReservations = generate50RealisticReservations(today);
-        List<Reservation> acceptedReservations = reservationService.receiveReservations(incomingReservations);
-        System.out.printf("📝 [예약 접수 완료] %d건 인입 중 유효 예약 %d건 장부 적재 완료%n%n",
-                incomingReservations.size(), acceptedReservations.size());
+        // 5. [인바운드 1단계: 외부 CMS 전문 인입 시뮬레이션]
+        System.out.println("📥 [채널 매니저(CMS) 외부 예약 인바운드 수신]");
+        System.out.println("--------------------------------------------------------------------------------");
+
+        // (1) 일본 TL-Lincoln(XML) 예약 전문 수신
+        String incomingTlxXml = """
+                <TL_Reservations>
+                  <Reservation>
+                    <ReservationId>TLX-IN-001</ReservationId>
+                    <GuestName>Yamada Taro</GuestName>
+                    <RoomType>SUPERIOR_TWIN</RoomType>
+                    <CheckInDate>2026-09-20</CheckInDate>
+                    <StayNights>4</StayNights>
+                    <SpecialRequest>東京タワーが見える部屋をお願いします。</SpecialRequest>
+                  </Reservation>
+                </TL_Reservations>
+                """;
+        List<Reservation> tlxParsed = tlxAdapter.parseIncomingReservations(incomingTlxXml);
+        System.out.printf("  🇯🇵 [TL-Lincoln XML] %d건 수신 파싱 완료 -> 예약ID: %s (%s, %s, %d박)%n",
+                tlxParsed.size(), tlxParsed.get(0).getReservationId(), tlxParsed.get(0).getGuestName(),
+                tlxParsed.get(0).getBookedRoomType(), tlxParsed.get(0).getStayNights());
+
+        // (2) 한국 ONDA Hub(JSON) 웹훅 예약 전문 수신
+        String incomingOndaJson = """
+                {
+                  "channel": "ONDA_HUB",
+                  "reservations": [
+                    {
+                      "reservationId": "ONDA-IN-001",
+                      "guestName": "김철수",
+                      "roomType": "RESIDENTIAL_DOUBLE",
+                      "checkInDate": "2026-09-20",
+                      "stayNights": 3,
+                      "specialRequests": "어머니 무릎이 불편하셔서 엘리베이터 가깝고 낮은 층 부탁드립니다."
+                    }
+                  ]
+                }
+                """;
+        List<Reservation> ondaParsed = ondaAdapter.parseIncomingReservations(incomingOndaJson);
+        System.out.printf("  🇰🇷 [ONDA Hub JSON]  %d건 수신 파싱 완료 -> 예약ID: %s (%s, %s, %d박)%n",
+                ondaParsed.size(), ondaParsed.get(0).getReservationId(), ondaParsed.get(0).getGuestName(),
+                ondaParsed.get(0).getBookedRoomType(), ondaParsed.get(0).getStayNights());
+
+        // CMS 인입 2건 + 일반 가상 예약 48건 = 총 50건 수신
+        List<Reservation> allIncoming = new ArrayList<>();
+        allIncoming.addAll(tlxParsed);
+        allIncoming.addAll(ondaParsed);
+        allIncoming.addAll(generate48RealisticReservations(today));
+
+        List<Reservation> acceptedReservations = reservationService.receiveReservations(allIncoming);
+        System.out.printf("%n📝 [예약 원장 적재 완료] 총 %d건 인입 중 유효 예약 %d건 장부 적재 완료%n%n",
+                allIncoming.size(), acceptedReservations.size());
 
         // 6. 배치 자동 배정 실행
         System.out.println("⚡ [Gemini 2.5 Flash & BatchAssigner] 당일 일괄 배정 파이프라인 가동...");
@@ -80,80 +130,7 @@ public class Main {
         System.out.println(assignmentResult.toSummaryString());
         System.out.println();
 
-        // 7. 전체 매칭 테이블 출력
-        Map<String, Reservation> allProcessedMap = new HashMap<>();
-        for (Reservation r : assignmentResult.getSuccessfulAssignments()) {
-            allProcessedMap.put(r.getReservationId(), r);
-        }
-        for (var failed : assignmentResult.getFailedAssignments()) {
-            allProcessedMap.put(failed.reservation().getReservationId(), failed.reservation());
-        }
-
-        System.out.println("========================================================================================================================");
-        System.out.println("🎯 [고객 요청 메모 -> Gemini AI 태그 스위치(ON/OFF) 판별 -> 최종 객실 매칭 결과]");
-        System.out.println("========================================================================================================================");
-        System.out.printf("%-13s | %-16s | %-4s | %-20s | %-32s | %s%n",
-                "예약ID", "객실타입", "박수", "고객 요청 메모(원문)", "AI 활성화 태그 (선호[+] / 기피[-])", "최종 배정 호실");
-        System.out.println("------------------------------------------------------------------------------------------------------------------------");
-
-        for (Reservation r : acceptedReservations) {
-            String memo = r.getRawRequestText();
-            if (memo != null && !memo.isBlank()) {
-                String memoPreview = (memo.length() > 14) ? memo.substring(0, 12) + ".." : memo;
-                Reservation processed = allProcessedMap.get(r.getReservationId());
-
-                String assignResultText;
-                String tagSwitchText;
-
-                if (processed != null) {
-                    TagPreference tagPref = processed.getTagPreference();
-                    String prefStr = tagPref.preferredTags().isEmpty() ? "없음" : String.join(",", tagPref.preferredTags());
-                    String avoidStr = tagPref.avoidTags().isEmpty() ? "" : " / 기피:" + String.join(",", tagPref.avoidTags());
-                    tagSwitchText = String.format("[+]%s%s", prefStr, avoidStr);
-
-                    assignResultText = processed.isAssigned()
-                            ? String.format("✅ %s호 확정", processed.getAssignedRoomNumber())
-                            : "❌ 배정실패";
-                } else {
-                    tagSwitchText = "[미분석]";
-                    assignResultText = "❌ 배정실패";
-                }
-
-                System.out.printf("%-13s | %-16s | %-3d박 | %-18s | %-30s | %s%n",
-                        r.getReservationId(),
-                        r.getBookedRoomType().name(),
-                        r.getStayNights(),
-                        memoPreview,
-                        tagSwitchText,
-                        assignResultText
-                );
-            }
-        }
-        System.out.println("========================================================================================================================\n");
-
-        // 8. 🚨 필수 하드 리퀘스트 미충족 경고 리포트 콘솔 출력
-        List<AssignmentAlert> alerts = assignmentResult.getHardRequestAlerts();
-        if (!alerts.isEmpty()) {
-            System.out.println("========================================================================================================================");
-            System.out.printf("🚨 [프론트 데스크 주의 요망: 필수 하드 리퀘스트(HARD) 미충족 배정 알림 (총 %d건)]%n", alerts.size());
-            System.out.println("========================================================================================================================");
-            System.out.printf("%-13s | %-12s | %-6s | %-24s | %s%n",
-                    "예약ID", "고객명", "배정호실", "미충족 필수 요청", "미충족 원인 상세 사유");
-            System.out.println("------------------------------------------------------------------------------------------------------------------------");
-            for (AssignmentAlert alert : alerts) {
-                System.out.printf("%-13s | %-12s | %-6s | %-22s | %s%n",
-                        alert.reservation().getReservationId(),
-                        alert.reservation().getGuestName(),
-                        alert.assignedRoomNumber() + "호",
-                        alert.unfulfilledTag(),
-                        alert.reason()
-                );
-            }
-            System.out.println("------------------------------------------------------------------------------------------------------------------------");
-            System.out.println("👉 안내 조치: 체크인 시 고객에게 사유를 선제적으로 정중히 안내하고, 당일 취소 공실 발생 시 우선 룸 체인지 후보로 관리 요망.\n");
-        }
-
-        // 9. 배정 실패 건 리포트 (만실 / 타입별 킵 방어)
+        // 7. 배정 실패 건 리포트 (만실 / 타입별 킵 방어)
         var failedItems = assignmentResult.getFailedAssignments();
         if (!failedItems.isEmpty()) {
             System.out.println("================================================================================");
@@ -179,7 +156,28 @@ public class Main {
             System.out.println("--------------------------------------------------------------------------------\n");
         }
 
-        // 10. 체크인 & 룸 체인지 시뮬레이션
+        // 8. 🚨 필수 하드 리퀘스트 미충족 경고 리포트
+        List<AssignmentAlert> alerts = assignmentResult.getHardRequestAlerts();
+        if (!alerts.isEmpty()) {
+            System.out.println("========================================================================================================================");
+            System.out.printf("🚨 [프론트 데스크 주의 요망: 필수 하드 리퀘스트(HARD) 미충족 배정 알림 (총 %d건)]%n", alerts.size());
+            System.out.println("========================================================================================================================");
+            System.out.printf("%-13s | %-12s | %-6s | %-24s | %s%n",
+                    "예약ID", "고객명", "배정호실", "미충족 필수 요청", "미충족 원인 상세 사유");
+            System.out.println("------------------------------------------------------------------------------------------------------------------------");
+            for (AssignmentAlert alert : alerts) {
+                System.out.printf("%-13s | %-12s | %-6s | %-22s | %s%n",
+                        alert.reservation().getReservationId(),
+                        alert.reservation().getGuestName(),
+                        alert.assignedRoomNumber() + "호",
+                        alert.unfulfilledTag(),
+                        alert.reason()
+                );
+            }
+            System.out.println("------------------------------------------------------------------------------------------------------------------------\n");
+        }
+
+        // 9. 체크인 & 룸 체인지 시뮬레이션
         Reservation firstAssigned = assignmentResult.getSuccessfulAssignments().stream().findFirst().orElse(null);
         if (firstAssigned != null) {
             String resId = firstAssigned.getReservationId();
@@ -212,7 +210,34 @@ public class Main {
             }
         }
 
-        // 11. 룸 랙 Full JSON 출력
+        // 10. [아웃바운드 2단계: 배정 후 최종 잔여 판매 가능 재고(ARI Push) 산출 및 전문 직렬화]
+        System.out.println("================================================================================");
+        System.out.println("📡 [채널 매니저(CMS) 아웃바운드: 판매 가능 잔여 재고(ARI Push) 동기화]");
+        System.out.println("================================================================================");
+        List<ChannelInventorySyncDto> ariSyncData = channelSyncService.calculateDailySellableInventory(today);
+
+        System.out.printf("%-20s | %-10s | %-8s | %-12s | %s%n",
+                "객실타입", "물리공실", "안전킵", "최종판매가능(Sellable)", "1박기준요금");
+        System.out.println("--------------------------------------------------------------------------------");
+        for (ChannelInventorySyncDto item : ariSyncData) {
+            System.out.printf("%-18s | %-8d실 | %-6d실 | %-16d실 | ¥%,d%n",
+                    item.roomType().getDescription(),
+                    item.physicalVacant(),
+                    item.holdQuota(),
+                    item.sellableInventory(),
+                    item.rateYen());
+        }
+        System.out.println("--------------------------------------------------------------------------------\n");
+
+        System.out.println("📤 [TL-Lincoln 송신 XML 전문 (Japan OTA용)]");
+        System.out.println(tlxAdapter.serializeInventoryUpdate(ariSyncData));
+        System.out.println();
+
+        System.out.println("📤 [ONDA Hub 송신 REST JSON 전문 (Korea OTA용)]");
+        System.out.println(ondaAdapter.serializeInventoryUpdate(ariSyncData));
+        System.out.println();
+
+        // 11. 최종 룸 랙 Full JSON 출력
         FloorMapResponseDto matrixReport = floorStatusService.getFloorMatrix(today, assignmentResult.getSuccessfulAssignments());
         System.out.println("================================================================================");
         System.out.println("📊 [191실 전 객실 룸 랙 Full JSON 매트릭스]");
@@ -231,7 +256,6 @@ public class Main {
     private static void registerAdminCustomTags(AdminTagService adminService, RoomRepository roomRepo) {
         boolean isAdmin = true;
 
-        // 도쿄타워 뷰 (Soft)
         RoomTag tokyoTowerView = new RoomTag(
                 "VIEW_TOKYO_TOWER", "도쿄타워 전망",
                 "창밖으로 도쿄타워 및 시티 랜드마크 야경이 펼쳐지는 객실, 타워 뷰 희망 시 매칭",
@@ -244,7 +268,6 @@ public class Main {
         roomRepo.findByRoomNumber("1501").ifPresent(r -> r.addTag("VIEW_TOKYO_TOWER"));
         roomRepo.findByRoomNumber("1502").ifPresent(r -> r.addTag("VIEW_TOKYO_TOWER"));
 
-        // 아로마 힐링룸 (Soft)
         RoomTag aromaRoom = new RoomTag(
                 "AMENITY_AROMA", "아로마 힐링룸",
                 "라벤더 아로마 디퓨저 및 릴렉스 공기청정기가 구비된 힐링 전용 객실, 향기나 힐링 요청 시 매칭",
@@ -316,7 +339,7 @@ public class Main {
         }
     }
 
-    private static List<Reservation> generate50RealisticReservations(LocalDate today) {
+    private static List<Reservation> generate48RealisticReservations(LocalDate today) {
         List<Reservation> list = new ArrayList<>();
         RoomType[] types = RoomType.values();
 
@@ -337,11 +360,11 @@ public class Main {
 
         Random rand = new Random(2026);
 
-        for (int i = 1; i <= 50; i++) {
+        for (int i = 3; i <= 50; i++) {
             String rsvId = String.format("RSV-BATCH-%03d", i);
             String guestName = "Guest_" + i;
             RoomType type = types[rand.nextInt(types.length)];
-            int nights = rand.nextInt(7) + 1; // 1~7박 연박 시뮬레이션
+            int nights = rand.nextInt(7) + 1;
             String note = realisticNotes[i % realisticNotes.length];
 
             list.add(new Reservation(rsvId, guestName, type, today, nights, note, GuestPreference.empty()));
