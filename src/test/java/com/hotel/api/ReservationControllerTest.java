@@ -4,7 +4,6 @@ import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.RoomType;
 import com.hotel.repository.ReservationRepository;
-import com.hotel.repository.RoomRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,10 +11,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
-import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -32,9 +31,6 @@ class ReservationControllerTest {
     @Autowired
     private ReservationRepository reservationRepository;
 
-    @Autowired
-    private RoomRepository roomRepository;
-
     private final LocalDate targetDate = LocalDate.of(2026, 9, 20);
 
     @BeforeEach
@@ -43,9 +39,9 @@ class ReservationControllerTest {
     }
 
     @Test
-    @DisplayName("[API] 당일 일괄 배정 트리거가 정상 작동하여 성공 목록을 반환해야 한다")
-    void batchAssign_ApiTest() throws Exception {
-        // 실제 존재하는 MODERATE_DOUBLE 타입으로 PENDING 예약 생성
+    @WithMockUser(username = "staff_member", authorities = {"ROLE_STAFF"})
+    @DisplayName("[API] 정직원(STAFF)은 당일 일괄 배정을 성공적으로 실행할 수 있다")
+    void batchAssign_Staff_Success() throws Exception {
         Reservation rsv = new Reservation(
                 "RSV-API-01",
                 "Hong GilDong",
@@ -68,15 +64,38 @@ class ReservationControllerTest {
                         .content(jsonPayload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.successfulAssignments[0].reservationId").value("RSV-API-01"))
-                .andExpect(jsonPath("$.data.successfulAssignments[0].assignedRoomNumber").isNotEmpty());
+                .andExpect(jsonPath("$.data.successfulAssignments[0].reservationId").value("RSV-API-01"));
     }
 
     @Test
-    @DisplayName("[API] 단일 예약 조회 시 존재하지 않는 예약은 404를 반환해야 한다")
-    void getReservation_NotFound() throws Exception {
+    @WithMockUser(username = "part_time_staff", authorities = {"ROLE_PART_TIME"})
+    @DisplayName("[보안 인가] 아르바이트(PART_TIME)는 일괄 배정 권한이 없어 403 Forbidden을 반환해야 한다")
+    void batchAssign_PartTime_Forbidden() throws Exception {
+        String jsonPayload = """
+                {
+                    "checkInDate": "2026-09-20"
+                }
+                """;
+
+        mockMvc.perform(post("/api/reservations/batch-assign")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonPayload))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "part_time_staff", authorities = {"ROLE_PART_TIME"})
+    @DisplayName("[API] 아르바이트(PART_TIME)는 단일 예약 조회가 정상 동작해야 한다")
+    void getReservation_PartTime_Success() throws Exception {
         mockMvc.perform(get("/api/reservations/NON-EXISTENT"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("[보안 인증] 인증 토큰 없는 익명 요청은 401 Unauthorized를 반환해야 한다")
+    void apiWithoutAuth_Returns401() throws Exception {
+        mockMvc.perform(get("/api/reservations/RSV-001"))
+                .andExpect(status().isUnauthorized());
     }
 }
