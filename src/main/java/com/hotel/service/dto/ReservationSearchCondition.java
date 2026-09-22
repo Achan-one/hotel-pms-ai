@@ -18,11 +18,11 @@ public record ReservationSearchCondition(
         ReservationStatus status,    // 예약 상태
         String assignedRoomNumber    // 배정된 방 번호
 ) {
-    // 7개 인자 레거시 호환 팩토리 생성자
-    public ReservationSearchCondition(String reservationId, String guestName, LocalDate checkInDate,
-                                      Integer stayNights, RoomType roomType,
-                                      ReservationStatus status, String assignedRoomNumber) {
-        this(reservationId, guestName, checkInDate, null, stayNights, roomType, status, assignedRoomNumber);
+    // 7개 인자 레거시 호환 팩토리 메서드 (생성자가 아닌 static 메서드로 선언하여 Spring 바인딩 충돌 방지)
+    public static ReservationSearchCondition of(String reservationId, String guestName, LocalDate checkInDate,
+                                                Integer stayNights, RoomType roomType,
+                                                ReservationStatus status, String assignedRoomNumber) {
+        return new ReservationSearchCondition(reservationId, guestName, checkInDate, null, stayNights, roomType, status, assignedRoomNumber);
     }
 
     public static ReservationSearchCondition byGuestName(String guestName) {
