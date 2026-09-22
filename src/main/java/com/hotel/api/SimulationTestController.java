@@ -2,11 +2,7 @@ package com.hotel.api;
 
 import com.hotel.channel.dto.ChannelReservationRequest;
 import com.hotel.channel.tlx.TlxChannelAdapter;
-import com.hotel.domain.GuestPreference;
-import com.hotel.domain.Reservation;
-import com.hotel.domain.Room;
-import com.hotel.domain.RoomStatus;
-import com.hotel.domain.RoomType;
+import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.service.ReservationService;
@@ -14,8 +10,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 @RestController
 @RequestMapping("/api/simulation")
@@ -43,6 +41,7 @@ public class SimulationTestController {
     public ResponseEntity<?> seedSampleReservations() {
         LocalDate target = LocalDate.of(2026, 9, 20);
 
+        // 7개 인자 생성자 활용: (id, name, type, checkIn, nights, memo, pref)
         Reservation r1 = new Reservation("RSV-TEST-01", "Tanaka Kenji", RoomType.SUPERIOR_TWIN, target, 2, "고층 희망", GuestPreference.empty());
         r1.assignRoom("0501");
         reservationRepository.save(r1);
@@ -88,16 +87,88 @@ public class SimulationTestController {
     }
 
     /**
-     * 3. 예약 및 객실 물리 상태 완전 초기화
+     * [신규] 3. 신규 예약 50건 인입 + 이미 투숙 중인(In-House) 예약 30건 대량 등록
+     */
+    @PostMapping("/bulk-simulate-50-and-30")
+    public ResponseEntity<?> bulkSimulate50And30() {
+        LocalDate today = LocalDate.of(2026, 9, 20);
+
+        // 1. 이미 투숙 중인(In-House) 예약 30건 생성 및 장부 적재 (실물 방 점유 동기화)
+        List<Room> allRooms = roomRepository.findAll();
+        int inHouseRegistered = 0;
+
+        for (int i = 1; i <= 30; i++) {
+            if (i > allRooms.size()) break;
+            Room room = allRooms.get(i - 1);
+
+            String rsvId = String.format("STAY-INHOUSE-%03d", i);
+            String guestName = "InHouse_Guest_" + i;
+
+            StayPeriod stayPeriod = new StayPeriod(today.minusDays(1), 3);
+            if (room.isAvailable(stayPeriod)) {
+                room.bookPeriod(stayPeriod);
+                room.setStatus(RoomStatus.OCCUPIED);
+
+                // 7개 인자 생성자 활용
+                Reservation inHouseRes = new Reservation(
+                        rsvId, guestName, room.getRoomType(),
+                        today.minusDays(1), 3,
+                        "기존 투숙 중인 고객", GuestPreference.empty()
+                );
+                inHouseRes.assignRoom(room.getRoomNumber());
+                inHouseRes.checkIn();
+                reservationRepository.save(inHouseRes);
+                inHouseRegistered++;
+            }
+        }
+
+        // 2. 신규 예약 50건 채널 인입 생성 (미배정 PENDING 상태)
+        List<Reservation> newBookings = new ArrayList<>();
+        RoomType[] types = RoomType.values();
+        Random rand = new Random(2026);
+
+        String[] sampleNotes = {
+                "어머니 무릎이 안 좋으셔서 엘리베이터 가깝고 낮은 층으로 부탁드립니다.",
+                "High floor with a nice Tokyo Tower view please!",
+                "조용한 안쪽 방으로 주세요.",
+                "도쿄타워 보이는 방으로 꼭 부탁드립니다.",
+                "아기 동반이라 소음 없는 방 원합니다.",
+                ""
+        };
+
+        for (int i = 1; i <= 50; i++) {
+            String rsvId = String.format("NEW-CMS-%03d", i);
+            String guestName = "New_Guest_" + i;
+            RoomType type = types[rand.nextInt(types.length)];
+            int nights = rand.nextInt(5) + 1;
+            String note = sampleNotes[i % sampleNotes.length];
+
+            // 7개 인자 생성자 활용
+            Reservation newRes = new Reservation(
+                    rsvId, guestName, type,
+                    today, nights,
+                    note, GuestPreference.empty()
+            );
+            newBookings.add(newRes);
+        }
+
+        reservationRepository.saveAll(newBookings);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", String.format("재실 투숙 중인 예약 %d건 등록 완료 및 신규 채널 예약 50건 인입 완료!", inHouseRegistered)
+        ));
+    }
+
+    /**
+     * 4. 예약 및 객실 물리 상태 완전 초기화
      */
     @PostMapping("/clear")
     public ResponseEntity<?> clearAll() {
-        // 1. 예약 원장 전체 삭제
         reservationRepository.clear();
 
-        // 2. 191실 실물 객실의 스케줄과 하우스키핑 상태를 초기 공실(VACANT)로 완전 리셋
         for (Room room : roomRepository.findAll()) {
-            room.release(); // 점유 스케줄 비우기 및 assigned = false 해제
+            room.release();
 
             try {
                 java.lang.reflect.Field statusField = Room.class.getDeclaredField("status");
