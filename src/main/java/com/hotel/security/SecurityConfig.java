@@ -45,18 +45,21 @@ public class SecurityConfig {
                         // 1. 공용 엔드포인트 (로그인 등)
                         .requestMatchers("/api/auth/**").permitAll()
 
-                        // 2. 관리자/사원 전용 (배치 일괄 배정, 룸 체인지)
+                        // 2. 룸 인디케이터 / 룸 랙: 현장 근무 직원(ADMIN, STAFF, PART_TIME) 조회 허용
+                        .requestMatchers(HttpMethod.GET, "/api/rooms/indicator").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
+
+                        // 3. 관리자/사원 전용 (배치 일괄 배정, 룸 체인지)
                         .requestMatchers(HttpMethod.POST, "/api/reservations/batch-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/room-change").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
-                        // 3. 현장 근무자 공통 (체크인, 체크아웃)
+                        // 4. 현장 근무자 공통 (체크인, 체크아웃)
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-in").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-out").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 4. 예약 조회 (목록 조회 및 단건 조회 모두 허용: 게스트 포함 인증된 사용자)
+                        // 5. 예약 조회 (목록 조회 및 단건 조회 모두 허용: 게스트 포함 인증된 사용자)
                         .requestMatchers(HttpMethod.GET, "/api/reservations/**").authenticated()
 
-                        // 5. 그 외 모든 요청 인증 필요
+                        // 6. 그 외 모든 요청 인증 필요
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(new JwtAuthenticationFilter(tokenProvider), UsernamePasswordAuthenticationFilter.class);
