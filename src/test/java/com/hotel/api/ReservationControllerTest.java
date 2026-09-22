@@ -2,6 +2,7 @@ package com.hotel.api;
 
 import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
+import com.hotel.domain.ReservationStatus;
 import com.hotel.domain.RoomType;
 import com.hotel.repository.ReservationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +37,34 @@ class ReservationControllerTest {
     @BeforeEach
     void setUp() {
         reservationRepository.clear();
+    }
+
+    @Test
+    @WithMockUser(username = "staff_member", authorities = {"ROLE_STAFF"})
+    @DisplayName("[API] 예약 목록 검색 조건에 맞게 필터링된 결과가 반환되어야 한다")
+    void searchReservations_Success() throws Exception {
+        // Given: 2건의 예약 저장 (1건은 9/20 PENDING, 1건은 9/21 ASSIGNED)
+        Reservation r1 = new Reservation("RSV-01", "Tanaka", RoomType.MODERATE_DOUBLE, targetDate, 2, null, GuestPreference.empty());
+        Reservation r2 = new Reservation("RSV-02", "Suzuki", RoomType.SUPERIOR_TWIN, targetDate.plusDays(1), 1, null, GuestPreference.empty());
+        r2.assignRoom("0501");
+
+        reservationRepository.save(r1);
+        reservationRepository.save(r2);
+
+        // When & Then 1: 9/20 체크인 일자 필터링
+        mockMvc.perform(get("/api/reservations")
+                        .param("checkInDate", "2026-09-20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].reservationId").value("RSV-01"));
+
+        // When & Then 2: 고객명 검색 필터링 ("suzuki")
+        mockMvc.perform(get("/api/reservations")
+                        .param("guestName", "suzuki"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].reservationId").value("RSV-02"));
     }
 
     @Test

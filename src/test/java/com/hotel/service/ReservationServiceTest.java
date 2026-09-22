@@ -108,9 +108,8 @@ class ReservationServiceTest {
         Reservation unassigned = new Reservation("RSV-FAIL-01", "FailGuest", RoomType.MODERATE_DOUBLE, today, 1, null, null);
         reservationService.receiveReservations(List.of(unassigned));
 
-        assertThrows(IllegalStateException.class, () -> {
-            reservationService.processCheckIn("RSV-FAIL-01");
-        }, "미배정 예약은 체크인할 수 없습니다.");
+        assertThrows(IllegalStateException.class, () ->
+                reservationService.processCheckIn("RSV-FAIL-01"), "미배정 예약은 체크인할 수 없습니다.");
     }
 
     @Test
@@ -138,7 +137,6 @@ class ReservationServiceTest {
         assertTrue(result.success());
         Reservation movedReservation = reservationRepository.findById("RSV-MOVE-01").orElseThrow();
 
-        // ROOM_CHANGED 대신 CHECKED_IN 유지 검증
         assertEquals(ReservationStatus.CHECKED_IN, movedReservation.getStatus(), "룸 체인지 후에도 예약 상태는 투숙중(CHECKED_IN)이어야 합니다.");
         assertEquals(targetRoom.getRoomNumber(), movedReservation.getAssignedRoomNumber());
         assertEquals(originRoom, movedReservation.getPreviousRoomNumber());
@@ -177,15 +175,24 @@ class ReservationServiceTest {
         reservationService.runDailyBatchAssignment(today);
         reservationService.processCheckIn("RSV-SEARCH-01");
 
+        // 8개 필드 순서 매핑:
+        // 1: reservationId (null)
+        // 2: guestName (null)
+        // 3: checkInDate (today)
+        // 4: stayingDate (null)
+        // 5: stayNights (null)
+        // 6: roomType (null)
+        // 7: status (ReservationStatus.CHECKED_IN)
+        // 8: assignedRoomNumber (null)
         ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, today, null, null, ReservationStatus.CHECKED_IN, null
+                null, null, today, null, null, null, ReservationStatus.CHECKED_IN, null
         );
 
         List<Reservation> results = reservationService.searchReservations(condition);
 
         assertEquals(1, results.size());
-        assertEquals("RSV-SEARCH-01", results.get(0).getReservationId());
-        assertEquals("Tanaka Kenji", results.get(0).getGuestName());
+        assertEquals("RSV-SEARCH-01", results.getFirst().getReservationId());
+        assertEquals("Tanaka Kenji", results.getFirst().getGuestName());
     }
 
     @Test

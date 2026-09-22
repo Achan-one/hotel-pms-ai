@@ -4,8 +4,9 @@ import com.hotel.api.dto.ApiResponse;
 import com.hotel.api.dto.BatchAssignApiRequest;
 import com.hotel.api.dto.RoomChangeApiRequest;
 import com.hotel.domain.Reservation;
-import com.hotel.service.BatchAssignmentResult; // [수정] com.hotel.service 패키지로 변경
+import com.hotel.service.BatchAssignmentResult;
 import com.hotel.service.ReservationService;
+import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 import jakarta.validation.Valid;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.NoSuchElementException;
 
 @RestController
@@ -23,6 +25,17 @@ public class ReservationController {
 
     public ReservationController(ReservationService reservationService) {
         this.reservationService = reservationService;
+    }
+
+    /**
+     * 예약 목록 다조건 검색
+     * GET /api/reservations?checkInDate=2026-09-20&status=PENDING&guestName=홍길동
+     */
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<Reservation>>> searchReservations(
+            @ModelAttribute ReservationSearchCondition condition) {
+        List<Reservation> reservations = reservationService.searchReservations(condition);
+        return ResponseEntity.ok(ApiResponse.ok(reservations));
     }
 
     /**
