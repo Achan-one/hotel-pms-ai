@@ -92,11 +92,27 @@ public class SimulationTestController {
     }
 
     /**
-     * 3. 예약 전체 초기화
+     * 3. 예약 및 객실 물리 상태 완전 초기화
      */
     @PostMapping("/clear")
     public ResponseEntity<?> clearAll() {
+        // 1. 예약 원장 전체 삭제
         reservationRepository.clear();
-        return ResponseEntity.ok(Map.of("success", true, "message", "모든 예약 데이터가 초기화되었습니다."));
+
+        // 2. 191실 실물 객실의 스케줄과 하우스키핑 상태를 초기 공실(VACANT)로 완전 리셋
+        for (com.hotel.domain.Room room : roomRepository.findAll()) {
+            room.release(); // 점유 스케줄 비우기 및 assigned = false 해제
+
+            // OCCUPIED나 OUT 등 모든 상태를 초기 VACANT로 리셋 (리플렉션 또는 도메인 복구)
+            try {
+                // 실물 상태 강제 VACANT 환원
+                java.lang.reflect.Field statusField = com.hotel.domain.Room.class.getDeclaredField("status");
+                statusField.setAccessible(true);
+                statusField.set(room, com.hotel.domain.RoomStatus.VACANT);
+            } catch (Exception ignored) {
+            }
+        }
+
+        return ResponseEntity.ok(Map.of("success", true, "message", "모든 예약 및 객실 191실이 완전한 공실(VACANT)로 초기화되었습니다."));
     }
 }
