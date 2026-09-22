@@ -1,28 +1,35 @@
 plugins {
-    id("java")
-    application
+    java
+    id("org.springframework.boot") version "3.3.4"
+    id("io.spring.dependency-management") version "1.1.6"
 }
 
 group = "com.hotel"
 version = "1.0-SNAPSHOT"
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    // Gemini API JSON 직렬화/역직렬화용 Jackson
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.0")
+    // 1. Spring Boot Web
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
 
-    // 단위 테스트 (JUnit 5)
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    // 2. Jackson
+    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+
+    // 3. 테스트 (JUnit 5 + Spring Boot Test)
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-application {
-    mainClass.set("com.hotel.Main")
-}
-
-tasks.test {
+tasks.withType<Test> {
     useJUnitPlatform()
 }
