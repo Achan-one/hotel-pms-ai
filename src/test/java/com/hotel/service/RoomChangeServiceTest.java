@@ -60,19 +60,14 @@ class RoomChangeServiceTest {
         assertEquals(targetRoom.getRoomNumber(), res.getAssignedRoomNumber());
         assertEquals(originRoom.getRoomNumber(), res.getPreviousRoomNumber());
 
-        // 상태 단순화 검증: ROOM_CHANGED 대신 CHECKED_IN(투숙중) 유지
         assertEquals(ReservationStatus.CHECKED_IN, res.getStatus(), "룸 체인지 후에도 예약의 본질 상태는 투숙중(CHECKED_IN)이어야 합니다.");
         assertTrue(res.getStatus().isInHouse());
 
-        // 하우스키핑 상태 전이: 이전 방은 OUT, 새 방은 OCCUPIED
         assertEquals(RoomStatus.OUT, originRoom.getStatus());
         assertEquals(RoomStatus.OCCUPIED, targetRoom.getStatus());
 
-        // 이전 방의 어제(9/20) 투숙 이력은 남아있고, 남은 9/21~9/23은 반납되어야 함
         assertFalse(originRoom.isAvailable(new StayPeriod(checkIn, 1)));
         assertTrue(originRoom.isAvailable(new StayPeriod(moveDate, 2)));
-
-        // 새 방은 남은 2박(9/21~9/23)이 점유되어야 함
         assertFalse(targetRoom.isAvailable(new StayPeriod(moveDate, 2)));
     }
 
@@ -93,7 +88,6 @@ class RoomChangeServiceTest {
 
         originRoom.bookPeriod(new StayPeriod(checkIn, 2));
 
-        // 타겟 객실이 청소 대기(OUT) 상태인 경우
         targetRoom.setStatus(RoomStatus.OUT);
 
         RoomChangeRequest request = new RoomChangeRequest("RSV-MOVE-02", targetRoom.getRoomNumber(), checkIn, "사유");
@@ -105,25 +99,33 @@ class RoomChangeServiceTest {
     }
 
     @Test
-    @DisplayName("[방어 2] 객실 타입이 일치하지 않으면 이동이 거부된다")
-    void changeRoom_TypeMismatch_Rejected() {
+    @DisplayName("[업그레이드/다운그레이드] 객실 타입이 달라도(이종 룸타입) 룸 체인지가 정상 성공해야 한다")
+    void changeRoom_CrossTypeUpgradeDowngrade_Success() {
         List<Room> allRooms = roomRepository.findAll();
         Room originRoom = allRooms.get(0);
+
+        // 이전 객실과 타입이 다른 공실 객실 탐색
         Room differentTypeRoom = allRooms.stream()
                 .filter(r -> r.getRoomType() != originRoom.getRoomType())
+                .filter(r -> r.getStatus().isAssignable())
                 .findFirst()
                 .orElseThrow();
 
         Reservation res = new Reservation("RSV-MOVE-03", "Park", originRoom.getRoomType(),
-                checkIn, 2, "방 바꿔주세요", GuestPreference.empty());
+                checkIn, 2, "방 업그레이드 요청", GuestPreference.empty());
         res.assignRoom(originRoom.getRoomNumber());
         res.startStaying();
 
-        RoomChangeRequest request = new RoomChangeRequest("RSV-MOVE-03", differentTypeRoom.getRoomNumber(), checkIn, "사유");
+        originRoom.bookPeriod(new StayPeriod(checkIn, 2));
+
+        RoomChangeRequest request = new RoomChangeRequest("RSV-MOVE-03", differentTypeRoom.getRoomNumber(), checkIn, "VIP 업그레이드");
         RoomChangeResult result = roomChangeService.changeRoom(res, request);
 
-        assertFalse(result.success());
-        assertTrue(result.message().contains("객실 타입 불일치"));
+        assertTrue(result.success(), "다른 타입 객실로의 룸 체인지는 업그레이드/다운그레이드를 위해 성공해야 합니다.");
+        assertEquals(differentTypeRoom.getRoomNumber(), res.getAssignedRoomNumber());
+        assertEquals(ReservationStatus.CHECKED_IN, res.getStatus());
+        assertEquals(RoomStatus.OUT, originRoom.getStatus());
+        assertEquals(RoomStatus.OCCUPIED, differentTypeRoom.getStatus());
     }
 
     @Test
@@ -147,7 +149,6 @@ class RoomChangeServiceTest {
         originRoom.setStatus(RoomStatus.OCCUPIED);
         targetRoom.setStatus(RoomStatus.VACANT);
 
-        // 체크인 당일(checkIn) 바로 룸 무브
         RoomChangeRequest request = new RoomChangeRequest("RSV-SAME-DAY", targetRoom.getRoomNumber(), checkIn, "냄새");
         RoomChangeResult result = roomChangeService.changeRoom(res, request);
 
@@ -157,11 +158,8 @@ class RoomChangeServiceTest {
         assertEquals(RoomStatus.OUT, originRoom.getStatus());
         assertEquals(RoomStatus.OCCUPIED, targetRoom.getStatus());
 
-        // 기존 방은 어제 잔여 투숙도 없으므로 스케줄이 완전히 비워져야 함
         assertTrue(originRoom.getBookedPeriods().isEmpty());
         assertFalse(originRoom.isAssigned());
-
-        // 신규 방은 2박 전체가 점유되어야 함
         assertFalse(targetRoom.isAvailable(new StayPeriod(checkIn, 2)));
     }
 }
