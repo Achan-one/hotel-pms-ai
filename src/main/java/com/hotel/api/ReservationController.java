@@ -61,7 +61,7 @@ public class ReservationController {
     }
 
     /**
-     * [PMS 수동 배정] 입실 전 객실 수동 지정 및 재배정
+     * [PMS 수동 배정] 입실 전 객실 수동 지정 및 재배정 (3자리/4자리 호실 번호 정규화 적용)
      */
     @PostMapping("/{reservationId}/manual-assign")
     public ResponseEntity<ApiResponse<Void>> manualAssign(
@@ -72,11 +72,28 @@ public class ReservationController {
             return ResponseEntity.badRequest().body(ApiResponse.fail("배정할 객실 번호는 필수입니다."));
         }
 
+        String normalizedRoomNumber = normalizeRoomNumber(targetRoomNumber);
+
         try {
-            reservationService.manualAssignRoom(reservationId, targetRoomNumber.trim());
+            reservationService.manualAssignRoom(reservationId, normalizedRoomNumber);
             return ResponseEntity.ok(ApiResponse.ok("객실 배정이 완료되었습니다.", null));
         } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
+        }
+    }
+
+    /**
+     * [PMS 배정 취소] 방 빼기 (스케줄 회수 및 PENDING 상태 환원)
+     */
+    @DeleteMapping("/{reservationId}/assign")
+    public ResponseEntity<ApiResponse<Void>> unassignRoom(@PathVariable String reservationId) {
+        try {
+            reservationService.cancelRoomAssignment(reservationId);
+            return ResponseEntity.ok(ApiResponse.ok("객실 배정이 취소되고 미배정 상태로 환원되었습니다.", null));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
         }
     }
 
@@ -90,7 +107,7 @@ public class ReservationController {
         try {
             String guestName = (String) body.get("operationalGuestName");
             if (guestName == null || guestName.isBlank()) {
-                guestName = (String) body.get("guestName"); // 키 호환
+                guestName = (String) body.get("guestName");
             }
 
             String checkInStr = (String) body.get("operationalCheckInDate");
@@ -133,7 +150,7 @@ public class ReservationController {
     }
 
     /**
-     * 룸 체인지 실행
+     * 룸 체인지 실행 (3자리/4자리 호실 번호 정규화 적용)
      */
     @PostMapping("/{reservationId}/room-change")
     public ResponseEntity<ApiResponse<RoomChangeResult>> roomChange(
@@ -142,10 +159,11 @@ public class ReservationController {
         try {
             LocalDate moveDate = (request.moveDate() != null) ? request.moveDate() : LocalDate.now();
             String reason = (request.reason() != null && !request.reason().isBlank()) ? request.reason() : "프론트 현장 요청";
+            String targetRoomNumber = normalizeRoomNumber(request.targetRoomNumber());
 
             RoomChangeRequest domainRequest = new RoomChangeRequest(
                     reservationId,
-                    request.targetRoomNumber(),
+                    targetRoomNumber,
                     moveDate,
                     reason
             );
@@ -177,5 +195,14 @@ public class ReservationController {
         } catch (NoSuchElementException e) {
             return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
         }
+    }
+
+    private String normalizeRoomNumber(String input) {
+        if (input == null || input.isBlank()) return "";
+        String trimmed = input.trim();
+        if (trimmed.length() == 3 && Character.isDigit(trimmed.charAt(0))) {
+            return "0" + trimmed;
+        }
+        return trimmed;
     }
 }
