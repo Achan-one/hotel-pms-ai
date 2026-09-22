@@ -121,6 +121,14 @@ public class ReservationService {
             throw new IllegalStateException("객실 배정이 완료되지 않은 예약은 체크인할 수 없습니다: " + reservationId);
         }
         reservation.checkIn();
+
+        String roomNumber = reservation.getAssignedRoomNumber();
+        if (roomNumber != null) {
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+                room.setStatus(RoomStatus.OCCUPIED);
+            });
+        }
+
         reservationRepository.save(reservation);
     }
 
@@ -136,7 +144,8 @@ public class ReservationService {
 
     public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
         Reservation reservation = findReservationOrThrow(reservationId);
-        LocalDate moveDate = LocalDate.now();
+        // 예약의 체크인 날짜 기준으로 안전하게 룸체인지 요청 생성
+        LocalDate moveDate = reservation.getCheckInDate() != null ? reservation.getCheckInDate() : LocalDate.now();
         RoomChangeRequest request = new RoomChangeRequest(reservationId, targetRoomNumber, moveDate, "현장 프론트 요청");
         return processRoomChange(request);
     }
@@ -149,19 +158,17 @@ public class ReservationService {
         LocalDate effectiveDate = (checkOutDate != null) ? checkOutDate : LocalDate.now();
         Reservation reservation = findReservationOrThrow(reservationId);
 
-        // 1. 투숙 및 미정산 상태 검증 후 실제 체크아웃 날짜 주입
         reservation.checkOut(effectiveDate);
 
-        // 2. 객실 스케줄 회수 및 청소 대기(OUT) 전이
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
+            StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                room.truncatePeriodFrom(effectiveDate);
+                room.truncatePeriodFrom(targetPeriod, effectiveDate);
                 room.setStatus(RoomStatus.OUT);
             });
         }
 
-        // 3. 검증 통과 및 객실 회수 후 최종 영속화
         reservationRepository.save(reservation);
     }
 
@@ -176,15 +183,14 @@ public class ReservationService {
     public void cancelRoomAssignment(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
         if (!reservation.isAssigned()) return;
-        if (reservation.getStatus().isInHouse()) {
-            throw new IllegalStateException("이미 입실(체크인)한 고객의 객실 배정은 직접 취소할 수 없습니다. (룸 체인지를 이용하세요)");
+        if (reservation.getStatus().isInHouse() || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
+            throw new IllegalStateException("이미 입실하거나 퇴실한 고객의 객실 배정은 직접 취소할 수 없습니다.");
         }
         String roomNumber = reservation.getAssignedRoomNumber();
         StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
         if (roomNumber != null) {
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
                 room.cancelPeriod(stayPeriod);
-                // [안전핀] 고장(BREAK)이나 점검(BLOCKED) 중인 객실은 VACANT로 복구하지 않고 유지
                 if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
                     room.setStatus(RoomStatus.VACANT);
                 }
@@ -196,15 +202,14 @@ public class ReservationService {
 
     public void cancelReservation(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
-        if (reservation.getStatus().isInHouse()) {
-            throw new IllegalStateException("현재 투숙 중인 예약은 취소할 수 없습니다. (체크아웃을 진행하세요)");
+        if (reservation.getStatus().isInHouse() || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
+            throw new IllegalStateException("투숙 중이거나 이미 퇴실 완료된 예약은 취소할 수 없습니다.");
         }
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
             StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
             roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
                 room.cancelPeriod(stayPeriod);
-                // [안전핀] 고장(BREAK)이나 점검(BLOCKED) 중인 객실은 VACANT로 복구하지 않고 유지
                 if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
                     room.setStatus(RoomStatus.VACANT);
                 }

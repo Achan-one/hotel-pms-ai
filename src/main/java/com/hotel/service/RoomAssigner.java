@@ -37,6 +37,11 @@ public class RoomAssigner {
     public Optional<Room> assign(Reservation reservation) {
         Objects.requireNonNull(reservation, "reservation은 필수입니다.");
 
+        // 종결된 예약의 재배정 방어
+        if (reservation.getStatus() == ReservationStatus.CANCELLED || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
+            return Optional.empty();
+        }
+
         if (reservation.isAssigned()) {
             return roomRepository.findByRoomNumber(reservation.getAssignedRoomNumber());
         }
@@ -55,16 +60,38 @@ public class RoomAssigner {
             return Optional.empty();
         }
 
-        // 2. 타입별 킵 방어: 일자별 최소 병목 공실 수 검증
+        // 2. 타입별 킵 방어 검증
         int typeHoldQuota = quotaPolicy.getTypeHoldQuota(bookedType);
         long minDailyVacant = calculateMinDailyVacant(bookedType, reservation.getCheckInDate(), reservation.getStayNights());
         if (minDailyVacant <= typeHoldQuota) {
             return Optional.empty();
         }
 
-        // 3. 태그별 킵 방어 필터링
-        List<Room> allocatableCandidates = candidates.stream()
-                .filter(room -> isRoomAllocatableUnderQuota(room, candidates, tagPref))
+        // 3. HARD 태그 물리적 필수 충족 필터링
+        Set<String> hardRequiredTags = new HashSet<>();
+        if (tagPref != null && !tagPref.preferredTags().isEmpty()) {
+            for (String tCode : tagPref.preferredTags()) {
+                tagRepository.findByCode(tCode).ifPresent(tag -> {
+                    if (tag.strictness().isHard()) {
+                        hardRequiredTags.add(tag.code());
+                    }
+                });
+            }
+        }
+
+        // [수정 지점] 변수 재할당을 없애고 단일 할당(Effectively Final)으로 정리하여 람다 캡처링 제약을 충족합니다.
+        List<Room> hardFiltered = candidates;
+        if (!hardRequiredTags.isEmpty()) {
+            List<Room> matched = candidates.stream()
+                    .filter(room -> hardRequiredTags.stream().allMatch(room::hasTag))
+                    .toList();
+            hardFiltered = matched.isEmpty() ? candidates : matched;
+        }
+        final List<Room> effectiveCandidates = hardFiltered;
+
+        // 4. 태그별 킵 방어 필터링 (effectively final 변수인 effectiveCandidates 사용)
+        List<Room> allocatableCandidates = effectiveCandidates.stream()
+                .filter(room -> isRoomAllocatableUnderQuota(room, effectiveCandidates, tagPref))
                 .toList();
 
         if (allocatableCandidates.isEmpty()) {
@@ -74,7 +101,7 @@ public class RoomAssigner {
         GuestPreference pref = reservation.getPreference();
         int stayNights = reservation.getStayNights();
 
-        // 4. 점수 높은 순으로 정렬 후 원자적 점유(tryBookPeriod) 시도 (동시성 경쟁 시 차선 객실 자동 획득)
+        // 5. 점수 기준 정렬 및 원자적 점유 시도
         List<Room> sortedCandidates = allocatableCandidates.stream()
                 .sorted(Comparator.comparingInt((Room room) -> calculateScore(room, pref, tagPref, stayNights)).reversed())
                 .toList();

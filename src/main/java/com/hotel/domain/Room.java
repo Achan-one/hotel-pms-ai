@@ -11,19 +11,10 @@ public class Room {
     private final boolean nearElevator;
     private final boolean cornerRoom;
 
-    // 동적 태그 컬렉션
     private final Set<String> tags;
-
-    // 하우스키핑 및 운영 룸 랙 상태 (기본값: VACANT)
     private RoomStatus status;
-
-    // 기존 단일 스냅샷 호환용 플래그
     private boolean assigned;
-
-    // 날짜 기반 스케줄 컬렉션 [checkIn, checkOut)
     private final List<StayPeriod> bookedPeriods;
-
-    // 동시성 제어 및 더블 부킹 방어를 위한 인스턴스 단위 재진입 락 (공정성 보장)
     private final ReentrantLock lock = new ReentrantLock(true);
 
     public Room(String roomNumber, int floor, RoomType roomType, boolean nearElevator, boolean cornerRoom) {
@@ -90,9 +81,6 @@ public class Room {
         }
     }
 
-    /**
-     * 특정 투숙 기간에 해당 객실이 배정 가능한지 확인 (동시성 보호)
-     */
     public boolean isAvailable(StayPeriod period) {
         lock.lock();
         try {
@@ -111,17 +99,10 @@ public class Room {
         }
     }
 
-    /**
-     * [원자적 점유 메서드 - 핵심]
-     * Check-Then-Act 구간을 단일 락 안에서 실행하여 더블 부킹을 원천 차단합니다.
-     *
-     * @param period 점유할 투숙 기간
-     * @return 배정 성공 시 true, 다른 스레드가 먼저 점유했거나 점검 중인 경우 false
-     */
     public boolean tryBookPeriod(StayPeriod period) {
         lock.lock();
         try {
-            if (!isAvailable(period)) {
+            if (period == null || !isAvailable(period)) {
                 return false;
             }
             this.bookedPeriods.add(period);
@@ -146,6 +127,7 @@ public class Room {
     public boolean isOccupiedOn(LocalDate targetDate) {
         lock.lock();
         try {
+            if (targetDate == null) return false;
             if (this.assigned && bookedPeriods.isEmpty()) {
                 return true;
             }
@@ -158,9 +140,7 @@ public class Room {
     public void assign() {
         lock.lock();
         try {
-            if (this.assigned) {
-                return;
-            }
+            if (this.assigned) return;
             this.assigned = true;
         } finally {
             lock.unlock();
@@ -170,12 +150,12 @@ public class Room {
     public void release() {
         lock.lock();
         try {
-            if (!this.assigned) {
-                return;
-            }
+            if (!this.assigned) return;
             this.assigned = false;
             this.bookedPeriods.clear();
-            this.status = RoomStatus.VACANT;
+            if (this.status.canTransitionTo(RoomStatus.VACANT)) {
+                this.status = RoomStatus.VACANT;
+            }
         } finally {
             lock.unlock();
         }
@@ -184,9 +164,7 @@ public class Room {
     public boolean cancelPeriod(StayPeriod period) {
         lock.lock();
         try {
-            if (period == null) {
-                return false;
-            }
+            if (period == null) return false;
             boolean removed = this.bookedPeriods.remove(period);
             if (this.bookedPeriods.isEmpty()) {
                 this.assigned = false;
@@ -198,11 +176,43 @@ public class Room {
     }
 
     /**
-     * 지정된 기준일자(moveDate) 이후의 미래 투숙 스케줄을 원자적으로 회수합니다.
-     * - moveDate가 시작일과 동일하거나 이전인 경우: 전체 스케줄 완전 회수 (0박 당일 이동)
-     * - moveDate가 투숙 기간 중간인 경우: [checkInDate, moveDate) 과거 구간만 영구 보존
-     * - moveDate보다 과거인 스케줄: 온전히 보존
+     * 특정 고객의 투숙 기간(targetPeriod)을 타겟팅하여 moveDate 이후 잔여 일정을 단축/회수합니다.
+     * 동일 객실에 이후 날짜로 예약된 다른 고객의 스케줄은 절대 훼손되지 않습니다.
      */
+    public void truncatePeriodFrom(StayPeriod targetPeriod, LocalDate moveDate) {
+        if (moveDate == null) return;
+        if (targetPeriod == null) {
+            truncatePeriodFrom(moveDate);
+            return;
+        }
+
+        lock.lock();
+        try {
+            List<StayPeriod> updated = new ArrayList<>();
+            for (StayPeriod p : this.bookedPeriods) {
+                if (!p.overlaps(targetPeriod)) {
+                    // 대상 예약과 무관한 다른 손님의 스케줄은 온전히 보존
+                    updated.add(p);
+                } else {
+                    // 대상 예약과 겹치는 스케줄만 축소
+                    if (!p.getCheckOutDate().isAfter(moveDate)) {
+                        updated.add(p);
+                    } else if (moveDate.isAfter(p.getCheckInDate()) && moveDate.isBefore(p.getCheckOutDate())) {
+                        updated.add(new StayPeriod(p.getCheckInDate(), moveDate));
+                    }
+                }
+            }
+
+            this.bookedPeriods.clear();
+            this.bookedPeriods.addAll(updated);
+            if (this.bookedPeriods.isEmpty()) {
+                this.assigned = false;
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public void truncatePeriodFrom(LocalDate moveDate) {
         if (moveDate == null) return;
 
@@ -211,13 +221,10 @@ public class Room {
             List<StayPeriod> updated = new ArrayList<>();
             for (StayPeriod p : this.bookedPeriods) {
                 if (!p.getCheckOutDate().isAfter(moveDate)) {
-                    // 1. 이미 퇴실일이 기준일 이전이거나 같은 과거 완료 스케줄 -> 그대로 보존
                     updated.add(p);
                 } else if (moveDate.isAfter(p.getCheckInDate()) && moveDate.isBefore(p.getCheckOutDate())) {
-                    // 2. 투숙 중간에 걸쳐 있는 경우 -> 과거 체류 일자만 분할 보존 [checkIn, moveDate)
                     updated.add(new StayPeriod(p.getCheckInDate(), moveDate));
                 }
-                // 3. moveDate가 checkInDate 이전이거나 동일한 경우 -> 당일 취소/이동이므로 스케줄 제외
             }
 
             this.bookedPeriods.clear();
@@ -234,7 +241,6 @@ public class Room {
         return !isAvailable(period);
     }
 
-    // Getters & Setters (동시성 보호)
     public String getRoomNumber() { return roomNumber; }
     public int getFloor() { return floor; }
     public RoomType getRoomType() { return roomType; }
@@ -268,9 +274,6 @@ public class Room {
         }
     }
 
-    /**
-     * 상태 전이 비즈니스 규칙 검증 및 반영 (동시성 락 보호)
-     */
     public void setStatus(RoomStatus newStatus) {
         Objects.requireNonNull(newStatus, "newStatus는 필수입니다.");
         lock.lock();
@@ -286,8 +289,6 @@ public class Room {
             lock.unlock();
         }
     }
-
-    // --- 하우스키핑 실무 캡슐화 전용 메서드 ---
 
     public void markCheckOut() {
         setStatus(RoomStatus.OUT);
