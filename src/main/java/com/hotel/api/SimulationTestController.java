@@ -1,10 +1,11 @@
 package com.hotel.api;
 
-import com.hotel.channel.ChannelManagerAdapter;
 import com.hotel.channel.dto.ChannelReservationRequest;
 import com.hotel.channel.tlx.TlxChannelAdapter;
 import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
+import com.hotel.domain.Room;
+import com.hotel.domain.RoomStatus;
 import com.hotel.domain.RoomType;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
@@ -42,27 +43,22 @@ public class SimulationTestController {
     public ResponseEntity<?> seedSampleReservations() {
         LocalDate target = LocalDate.of(2026, 9, 20);
 
-        // 1) 배정 완료 건 (체크인 테스트 가능)
         Reservation r1 = new Reservation("RSV-TEST-01", "Tanaka Kenji", RoomType.SUPERIOR_TWIN, target, 2, "고층 희망", GuestPreference.empty());
         r1.assignRoom("0501");
         reservationRepository.save(r1);
 
-        // 2) 이미 체크인되어 재실 중인 건 (룸 체인지 테스트 가능)
         Reservation r2 = new Reservation("RSV-TEST-02", "Sato Yuki", RoomType.MODERATE_DOUBLE, target, 3, "조용한 방", GuestPreference.empty());
         r2.assignRoom("0302");
         r2.checkIn();
         reservationRepository.save(r2);
-        roomRepository.findByRoomNumber("0302").ifPresent(r -> r.setStatus(com.hotel.domain.RoomStatus.OCCUPIED));
+        roomRepository.findByRoomNumber("0302").ifPresent(r -> r.setStatus(RoomStatus.OCCUPIED));
 
-        // 3) 미배정 상태 건 (자동 일괄 배정 테스트 가능)
         Reservation r3 = new Reservation("RSV-TEST-03", "Kim Minsoo", RoomType.SUPERIOR_DOUBLE, target, 1, "엘리베이터 근처", GuestPreference.empty());
         reservationRepository.save(r3);
 
-        // 4) 미배정 상태 건 2
         Reservation r4 = new Reservation("RSV-TEST-04", "John Smith", RoomType.SUPERIOR_TWIN, target, 4, "연박", GuestPreference.empty());
         reservationRepository.save(r4);
 
-        // 5) 고층 이그제큐티브 미배정 건
         Reservation r5 = new Reservation("RSV-TEST-05", "Lee Jinwoo", RoomType.EXECUTIVE_DOUBLE, target, 2, "최고층 선호", GuestPreference.empty());
         reservationRepository.save(r5);
 
@@ -100,15 +96,13 @@ public class SimulationTestController {
         reservationRepository.clear();
 
         // 2. 191실 실물 객실의 스케줄과 하우스키핑 상태를 초기 공실(VACANT)로 완전 리셋
-        for (com.hotel.domain.Room room : roomRepository.findAll()) {
+        for (Room room : roomRepository.findAll()) {
             room.release(); // 점유 스케줄 비우기 및 assigned = false 해제
 
-            // OCCUPIED나 OUT 등 모든 상태를 초기 VACANT로 리셋 (리플렉션 또는 도메인 복구)
             try {
-                // 실물 상태 강제 VACANT 환원
-                java.lang.reflect.Field statusField = com.hotel.domain.Room.class.getDeclaredField("status");
+                java.lang.reflect.Field statusField = Room.class.getDeclaredField("status");
                 statusField.setAccessible(true);
-                statusField.set(room, com.hotel.domain.RoomStatus.VACANT);
+                statusField.set(room, RoomStatus.VACANT);
             } catch (Exception ignored) {
             }
         }

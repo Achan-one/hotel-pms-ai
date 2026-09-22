@@ -107,8 +107,6 @@ public class ReservationService {
                     roomRepository.findByRoomNumber(roomNumber).ifPresent(r -> r.cancelPeriod(period));
                 }
                 success.cancelAssignment();
-                System.err.printf("[보상 롤백 트리거] 예약 저장 실패로 객실 스케줄 회수 (%s, %s호): %s%n",
-                        success.getReservationId(), roomNumber, e.getMessage());
             }
         }
 
@@ -124,9 +122,7 @@ public class ReservationService {
 
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                room.setStatus(RoomStatus.OCCUPIED);
-            });
+            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> room.setStatus(RoomStatus.OCCUPIED));
         }
 
         reservationRepository.save(reservation);
@@ -144,10 +140,73 @@ public class ReservationService {
 
     public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
         Reservation reservation = findReservationOrThrow(reservationId);
-        // 예약의 체크인 날짜 기준으로 안전하게 룸체인지 요청 생성
         LocalDate moveDate = reservation.getCheckInDate() != null ? reservation.getCheckInDate() : LocalDate.now();
         RoomChangeRequest request = new RoomChangeRequest(reservationId, targetRoomNumber, moveDate, "현장 프론트 요청");
         return processRoomChange(request);
+    }
+
+    /**
+     * [PMS 수동 배정] 입실 전 고객 호실 수동 지정/재배정
+     */
+    public void manualAssignRoom(String reservationId, String targetRoomNumber) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+        if (reservation.getStatus().isInHouse() || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
+            throw new IllegalStateException("이미 입실하거나 퇴실한 고객은 일반 배정이 아닌 [룸 체인지]를 사용해야 합니다.");
+        }
+
+        Room targetRoom = roomRepository.findByRoomNumber(targetRoomNumber)
+                .orElseThrow(() -> new IllegalArgumentException("해당 호실(" + targetRoomNumber + ")이 도면에 존재하지 않습니다."));
+
+        StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+
+        if (!targetRoom.isAvailable(targetPeriod)) {
+            throw new IllegalStateException("해당 객실(" + targetRoomNumber + "호)은 선택한 일정에 이미 점유되어 있습니다.");
+        }
+
+        if (reservation.isAssigned() && reservation.getAssignedRoomNumber() != null) {
+            String prevRoom = reservation.getAssignedRoomNumber();
+            roomRepository.findByRoomNumber(prevRoom).ifPresent(r -> r.cancelPeriod(targetPeriod));
+        }
+
+        targetRoom.bookPeriod(targetPeriod);
+        reservation.assignRoom(targetRoomNumber);
+        reservationRepository.save(reservation);
+    }
+
+    /**
+     * [PMS 운영 오버라이드] 원본 계약은 보존하고 프론트 데스크 운영 정보만 갱신
+     */
+    public void updateOperationalDetails(String reservationId,
+                                         String operationalName,
+                                         LocalDate operationalCheckIn,
+                                         Integer operationalNights,
+                                         String staffMemo) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+
+        if ((operationalCheckIn != null && !operationalCheckIn.equals(reservation.getCheckInDate())) ||
+                (operationalNights != null && operationalNights != reservation.getStayNights())) {
+
+            if (reservation.isAssigned()) {
+                String roomNumber = reservation.getAssignedRoomNumber();
+                Room room = roomRepository.findByRoomNumber(roomNumber).orElseThrow();
+
+                StayPeriod oldPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+                room.cancelPeriod(oldPeriod);
+
+                LocalDate effectiveCheckIn = (operationalCheckIn != null) ? operationalCheckIn : reservation.getCheckInDate();
+                int effectiveNights = (operationalNights != null) ? operationalNights : reservation.getStayNights();
+                StayPeriod newPeriod = new StayPeriod(effectiveCheckIn, effectiveNights);
+
+                if (!room.isAvailable(newPeriod)) {
+                    room.bookPeriod(oldPeriod);
+                    throw new IllegalStateException("해당 객실(" + roomNumber + "호)은 변경하려는 일정에 이미 예약이 존재합니다.");
+                }
+                room.bookPeriod(newPeriod);
+            }
+        }
+
+        reservation.updateOperationalDetails(operationalName, operationalCheckIn, operationalNights, staffMemo);
+        reservationRepository.save(reservation);
     }
 
     public void processCheckOut(String reservationId) {
