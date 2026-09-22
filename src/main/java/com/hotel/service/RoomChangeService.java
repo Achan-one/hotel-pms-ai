@@ -53,12 +53,6 @@ public class RoomChangeService {
                             + targetRoom.getStatus().getTitle() + ")");
         }
 
-        if (targetRoom.getRoomType() != reservation.getBookedRoomType()) {
-            return RoomChangeResult.failure(reservation.getReservationId(),
-                    String.format("객실 타입 불일치: 예약 타입은 %s이나 대상 객실은 %s입니다.",
-                            reservation.getBookedRoomType(), targetRoom.getRoomType()));
-        }
-
         LocalDate moveDate = request.moveDate();
         LocalDate checkInDate = reservation.getCheckInDate();
         LocalDate checkOutDate = reservation.getCheckOutDate();
@@ -93,6 +87,13 @@ public class RoomChangeService {
 
         targetRoom.setStatus(RoomStatus.OCCUPIED);
         reservation.changeRoom(targetRoom.getRoomNumber());
+
+        // 업그레이드/다운그레이드 이종 룸타입 판정 안내 문구
+        String typeChangeNote = "";
+        if (targetRoom.getRoomType() != reservation.getBookedRoomType()) {
+            typeChangeNote = String.format(" [타입 변동: %s -> %s]",
+                    reservation.getBookedRoomType().getDescription(), targetRoom.getRoomType().getDescription());
+        }
 
         return RoomChangeResult.success(
                 reservation.getReservationId(),
