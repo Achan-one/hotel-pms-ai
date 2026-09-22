@@ -1,4 +1,4 @@
-package com.hotel.security;
+package com.hotel.domain;
 
 public enum StaffRole {
     ROLE_ADMIN("호텔 관리자"),

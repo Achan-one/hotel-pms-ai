@@ -1,5 +1,6 @@
 package com.hotel.security;
 
+import com.hotel.domain.StaffRole;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
