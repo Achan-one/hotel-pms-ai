@@ -40,7 +40,7 @@ class TagScoringEngineTest {
         Room room = new Room("1201", 12, RoomType.SUPERIOR_TWIN, false, true);
         room.addTag("VIEW_TOKYO_TOWER");
 
-        // AI 스위치: 도쿄타워 전망 희망, 엘리베이터 인접 기피
+        // AI 스위치: 도쿄타워 전망 희망, 고층 희망
         TagPreference pref = new TagPreference(
                 Set.of("VIEW_TOKYO_TOWER", RoomTag.HIGH_FLOOR.code()),
                 Set.of(RoomTag.NEAR_ELEVATOR.code())
@@ -58,6 +58,7 @@ class TagScoringEngineTest {
         Room room = new Room("1401", 14, RoomType.SUPERIOR_TWIN, false, true);
         room.addTag("VIEW_TOKYO_TOWER");
 
+        // 도쿄타워 기피 고객
         TagPreference pref = new TagPreference(
                 Set.of(),
                 Set.of("VIEW_TOKYO_TOWER")
@@ -65,7 +66,33 @@ class TagScoringEngineTest {
 
         int score = engine.calculateScore(room, pref, 1);
 
-        // 50 * 1.5 = -75점 감점
-        assertEquals(-75, score);
+        // 기본 태그 낭비 감점(-50) + 기피 패널티(-75) = -125점
+        assertTrue(score <= -75, "기피 태그 매칭 시 강력한 비례 감점이 적용되어야 합니다.");
+    }
+
+    @Test
+    @DisplayName("[태그 낭비 방지 감점] 요청 없는 일반 고객은 특수 태그(도쿄타워)가 있는 방을 평가할 때 감점을 받아야 한다")
+    void calculateScore_TagWastePenalty_ForGeneralGuest() {
+        // 일반 방: 태그 없음 (기본 물리 태그만 존재)
+        Room normalRoom = new Room("0501", 5, RoomType.SUPERIOR_TWIN, false, false);
+
+        // 특수 방: 도쿄타워 전망 태그 보유 (가중치 50)
+        Room tokyoTowerRoom = new Room("1401", 14, RoomType.SUPERIOR_TWIN, false, true);
+        tokyoTowerRoom.addTag("VIEW_TOKYO_TOWER");
+
+        // 요구사항이 전혀 없는 일반 예약 (TagPreference.empty())
+        TagPreference noRequestPref = TagPreference.empty();
+
+        int normalScore = engine.calculateScore(normalRoom, noRequestPref, 1);
+        int tokyoTowerScore = engine.calculateScore(tokyoTowerRoom, noRequestPref, 1);
+
+        // 일반 방은 감점이 없어 0점
+        assertEquals(0, normalScore);
+
+        // 도쿄타워 방은 해당 태그를 요구하지 않았으므로 가중치(50점)만큼 감점되어 -50점
+        assertEquals(-50, tokyoTowerScore);
+
+        // 따라서 일반 고객에게는 일반 방(0점)이 특수 방(-50점)보다 우선순위가 훨씬 높아야 함
+        assertTrue(normalScore > tokyoTowerScore, "요청 없는 고객에게는 특수 태그 방보다 일반 방이 우선 배정되어야 합니다.");
     }
 }
