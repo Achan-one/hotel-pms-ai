@@ -87,7 +87,8 @@ public class FloorStatusService {
                     status,
                     rsvId,
                     guestName,
-                    stayPeriodStr
+                    stayPeriodStr,
+                    room.getTags() // 👈 추가: DTO로 객실 태그 전달
             ));
         }
 
