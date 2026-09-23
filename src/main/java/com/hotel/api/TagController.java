@@ -76,6 +76,29 @@ public class TagController {
         ));
     }
 
+    /**
+     * 특정 태그가 부여된 191실 객실 번호 목록 조회
+     * GET /api/admin/tags/{tagCode}/rooms
+     */
+    @GetMapping("/{tagCode}/rooms")
+    public ResponseEntity<ApiResponse<List<String>>> getRoomsByTag(@PathVariable("tagCode") String tagCode) {
+        String decodedCode;
+        try {
+            decodedCode = java.net.URLDecoder.decode(tagCode, java.nio.charset.StandardCharsets.UTF_8).trim().toUpperCase();
+        } catch (Exception e) {
+            decodedCode = tagCode.trim().toUpperCase();
+        }
+
+        final String targetCode = decodedCode;
+        List<String> matchedRoomNumbers = roomRepository.findAll().stream()
+                .filter(room -> room.hasTag(targetCode))
+                .map(Room::getRoomNumber)
+                .sorted()
+                .toList();
+
+        return ResponseEntity.ok(ApiResponse.ok(matchedRoomNumbers));
+    }
+
     @DeleteMapping("/{tagCode}")
     public ResponseEntity<ApiResponse<Void>> deleteTag(@PathVariable("tagCode") String tagCode) {
         // URL 인코딩된 문자열(한글 등) 디코딩 및 공백/대문자 정규화
