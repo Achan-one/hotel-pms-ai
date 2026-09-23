@@ -3,6 +3,7 @@ package com.hotel.service.report;
 import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.TagRepository;
 import com.hotel.service.RoomAssigner;
 import com.hotel.service.dto.AssignmentAlert;
 import com.hotel.service.dto.ReservationSearchCondition;
@@ -104,16 +105,15 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 3. 당일 출발 예정자 명단 (Departures List) - 조기 체크아웃 포함 방어
+    // 3. 당일 출발 예정자 명단 (Departures List)
     // =========================================================================
     public List<DepartureReportItemDto> getDepartureList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Reservation> allReservations = reservationRepository.search(
-                new ReservationSearchCondition(null, null, null, null, null, null, null,null,null)
+                new ReservationSearchCondition(null, null, null, null, null, null, null, null, null)
         );
 
         return allReservations.stream()
-                // [조기 퇴실 방어] 원래 퇴실 예정일이 오늘이거나, 실제 오늘 퇴실한 고객 모두 포착
                 .filter(r -> date.equals(r.getCheckOutDate()) || date.equals(r.getActualCheckOutDate()))
                 .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
                 .map(r -> {
@@ -157,7 +157,7 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 4. 재실 숙박자 명단 (In-House Guest List) - 체류일차 상한 보정
+    // 4. 재실 숙박자 명단 (In-House Guest List)
     // =========================================================================
     public List<InHouseGuestDto> getInHouseGuestList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
@@ -168,7 +168,6 @@ public class ReportExportService {
                 .map(r -> {
                     int floor = Integer.parseInt(r.getAssignedRoomNumber().substring(0, 2));
                     int calculatedDay = (int) ChronoUnit.DAYS.between(r.getCheckInDate(), date) + 1;
-                    // [상한 보정] 총 박수를 넘어서는 이상치 방지
                     int currentStayDay = Math.min(r.getStayNights(), Math.max(1, calculatedDay));
 
                     return new InHouseGuestDto(
@@ -222,7 +221,6 @@ public class ReportExportService {
             if (total == 0) continue;
 
             int oos = (int) typeRooms.stream().filter(r -> r.getStatus().isOutOfService()).count();
-
             int stayover = (int) inHouseGuests.stream()
                     .filter(r -> r.getBookedRoomType() == type)
                     .filter(r -> r.getCheckInDate().isBefore(date))
@@ -270,7 +268,7 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 6. 스페셜 리퀘스트 요약 명단
+    // 6. 스페셜 리퀘스트 요약 명단 (배정객실보유태그 컬럼 추가)
     // =========================================================================
     public List<SpecialRequestReportDto> getSpecialRequestSummary(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
@@ -281,50 +279,55 @@ public class ReportExportService {
             if (rsv.getStatus() == ReservationStatus.CANCELLED) continue;
 
             TagPreference tagPref = rsv.getTagPreference();
-            boolean hasMemo = rsv.getRawRequestText() != null && !rsv.getRawRequestText().isBlank();
-            boolean hasTags = tagPref != null && (!tagPref.preferredTags().isEmpty() || !tagPref.avoidTags().isEmpty());
+            String roomNo = rsv.isAssigned() ? rsv.getAssignedRoomNumber() : "미배정";
+            String assignedTags = "";
+            boolean hasHardFail = false;
+            String alertReason = "정상";
 
-            if (hasMemo || hasTags) {
-                String roomNo = rsv.isAssigned() ? rsv.getAssignedRoomNumber() : "미배정";
-                boolean hasHardFail = false;
-                String alertReason = "정상";
-
-                if (rsv.isAssigned()) {
-                    Room room = roomRepository.findByRoomNumber(roomNo).orElse(null);
-                    if (room != null) {
-                        List<AssignmentAlert> alerts = roomAssigner.checkHardRequestAlerts(rsv, room);
-                        if (!alerts.isEmpty()) {
-                            hasHardFail = true;
-                            alertReason = alerts.getFirst().reason();
-                        }
+            if (rsv.isAssigned()) {
+                Room room = roomRepository.findByRoomNumber(roomNo).orElse(null);
+                if (room != null) {
+                    assignedTags = String.join("|", room.getTags()); // 👈 배정된 방의 실제 보유 태그 추출
+                    List<AssignmentAlert> alerts = roomAssigner.checkHardRequestAlerts(rsv, room);
+                    if (!alerts.isEmpty()) {
+                        hasHardFail = true;
+                        alertReason = alerts.getFirst().reason();
                     }
                 }
-
-                Set<String> prefTags = (tagPref != null) ? tagPref.preferredTags() : Set.of();
-                Set<String> avoidTags = (tagPref != null) ? tagPref.avoidTags() : Set.of();
-
-                list.add(new SpecialRequestReportDto(
-                        rsv.getReservationId(),
-                        rsv.getGuestName(),
-                        roomNo,
-                        rsv.getRawRequestText() != null ? rsv.getRawRequestText() : "",
-                        prefTags,
-                        avoidTags,
-                        hasHardFail,
-                        alertReason
-                ));
+            } else {
+                alertReason = "미배정 (만실 또는 안전 쿼터 보존)";
             }
+
+            Set<String> prefTags = (tagPref != null) ? tagPref.preferredTags() : Set.of();
+            Set<String> avoidTags = (tagPref != null) ? tagPref.avoidTags() : Set.of();
+
+            list.add(new SpecialRequestReportDto(
+                    rsv.getReservationId(),
+                    rsv.getGuestName(),
+                    rsv.getBookedRoomType(),
+                    roomNo,
+                    assignedTags,
+                    rsv.getRawRequestText() != null ? rsv.getRawRequestText() : "",
+                    prefTags,
+                    avoidTags,
+                    hasHardFail,
+                    alertReason
+            ));
         }
         return list;
     }
 
     public String exportSpecialRequestSummaryToCsv(LocalDate targetDate) {
         List<SpecialRequestReportDto> list = getSpecialRequestSummary(targetDate);
-        List<String> headers = List.of("예약ID", "고객명", "배정호실", "원문요청", "희망태그", "기피태그", "필수조건미충족", "조치사유");
+        List<String> headers = List.of(
+                "예약ID", "고객명", "신청객실타입", "배정호실", "배정객실보유태그", "원문요청", "희망태그", "기피태그", "필수조건미충족", "조치사유"
+        );
         List<Function<SpecialRequestReportDto, Object>> mappers = List.of(
                 SpecialRequestReportDto::reservationId,
                 SpecialRequestReportDto::guestName,
+                item -> item.roomType().getDescription(),
                 SpecialRequestReportDto::assignedRoomNumber,
+                SpecialRequestReportDto::assignedRoomTags,
                 SpecialRequestReportDto::rawRequestText,
                 item -> String.join("|", item.preferredTags()),
                 item -> String.join("|", item.avoidTags()),
@@ -335,14 +338,14 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 7. 하우스키핑 작업 지시서 (Housekeeping Daily Work Sheet)
+    // 7. 하우스키핑 작업 지시서
     // =========================================================================
     public List<HousekeepingWorkItemDto> getHousekeepingWorkSheet(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Room> allRooms = roomRepository.findAll();
 
         ReservationSearchCondition departureCondition = new ReservationSearchCondition(
-                null, null, null, null, null, null, null, null,null
+                null, null, null, null, null, null, null, null, null
         );
         Set<String> todayDepartureRoomNumbers = reservationRepository.search(departureCondition).stream()
                 .filter(r -> r.isAssigned() && (date.equals(r.getCheckOutDate()) || date.equals(r.getActualCheckOutDate())))
@@ -410,13 +413,13 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 8. 취소 및 노쇼 감사 장부 (Cancellation Audit Ledger)
+    // 8. 취소 및 노쇼 감사 장부
     // =========================================================================
     public String exportCancellationAuditLedgerToCsv(LocalDate checkInFrom, LocalDate checkInTo) {
         ReportPolicy.validateDateRange(checkInFrom, checkInTo);
 
         List<Reservation> cancelledList = reservationRepository.search(
-                        new ReservationSearchCondition(null, null, null, null, null, null, null,null,null)
+                        new ReservationSearchCondition(null, null, null, null, null, null, null, null, null)
                 ).stream()
                 .filter(r -> r.getStatus() == ReservationStatus.CANCELLED)
                 .filter(r -> !r.getCheckInDate().isBefore(checkInFrom) && !r.getCheckInDate().isAfter(checkInTo))
@@ -435,5 +438,68 @@ public class ReportExportService {
         );
 
         return CsvSerializer.serialize(headers, mappers, cancelledList);
+    }
+
+    // =========================================================================
+    // 9. [신규] 룸 태그 인디케이터 (1) - 191실 전수 방 기준 보유 태그 리포트
+    // =========================================================================
+    public String exportRoomTagsToCsv() {
+        List<Room> allRooms = roomRepository.findAll().stream()
+                .sorted(Comparator.comparing(Room::getFloor)
+                        .thenComparing(Room::getRoomNumber))
+                .toList();
+
+        List<String> headers = List.of("호실", "층", "객실타입", "엘리베이터", "코너룸", "룸랙상태", "보유태그수", "보유태그목록");
+        List<Function<Room, Object>> mappers = List.of(
+                Room::getRoomNumber,
+                Room::getFloor,
+                r -> r.getRoomType().getDescription(),
+                r -> r.isNearElevator() ? "인접(3~8호)" : "이격",
+                r -> r.isCorner() ? "코너(모퉁이)" : "일반",
+                r -> r.getStatus().getTitle(),
+                r -> r.getTags().size(),
+                r -> String.join(" | ", r.getTags())
+        );
+
+        return CsvSerializer.serialize(headers, mappers, allRooms);
+    }
+
+    // =========================================================================
+    // 10. [신규] 룸 태그 인디케이터 (2) - 태그 기준 해당 객실 목록 매핑 리포트
+    // =========================================================================
+    public record TagRoomMappingRow(String tagCode, int matchedRoomCount, String matchedRooms) {}
+
+    public String exportTagToRoomsMatrixToCsv() {
+        List<Room> allRooms = roomRepository.findAll();
+
+        // 1. 전체 객실에 분포한 고유 태그 목록 집계
+        Set<String> allTags = new TreeSet<>();
+        for (Room r : allRooms) {
+            allTags.addAll(r.getTags());
+        }
+
+        List<TagRoomMappingRow> rows = new ArrayList<>();
+        for (String tagCode : allTags) {
+            List<String> matched = allRooms.stream()
+                    .filter(r -> r.hasTag(tagCode))
+                    .map(Room::getRoomNumber)
+                    .sorted()
+                    .toList();
+
+            rows.add(new TagRoomMappingRow(
+                    tagCode,
+                    matched.size(),
+                    String.join(", ", matched)
+            ));
+        }
+
+        List<String> headers = List.of("태그코드", "해당객실총수", "배정가능객실목록");
+        List<Function<TagRoomMappingRow, Object>> mappers = List.of(
+                TagRoomMappingRow::tagCode,
+                TagRoomMappingRow::matchedRoomCount,
+                TagRoomMappingRow::matchedRooms
+        );
+
+        return CsvSerializer.serialize(headers, mappers, rows);
     }
 }

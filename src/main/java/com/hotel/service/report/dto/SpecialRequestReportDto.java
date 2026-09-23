@@ -1,5 +1,5 @@
 package com.hotel.service.report.dto;
-
+import com.hotel.domain.RoomType;
 import java.util.Set;
 
 /**
@@ -8,7 +8,9 @@ import java.util.Set;
 public record SpecialRequestReportDto(
         String reservationId,
         String guestName,
+        RoomType roomType,
         String assignedRoomNumber,
+        String assignedRoomTags,
         String rawRequestText,
         Set<String> preferredTags,
         Set<String> avoidTags,

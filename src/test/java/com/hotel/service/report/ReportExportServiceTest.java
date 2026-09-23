@@ -185,8 +185,8 @@ class ReportExportServiceTest {
     void exportSpecialRequestSummaryToCsv_Success() {
         String csv = reportExportService.exportSpecialRequestSummaryToCsv(today);
 
-        assertTrue(csv.contains("예약ID,고객명,배정호실,원문요청,희망태그,기피태그,필수조건미충족,조치사유\r\n"));
-        assertTrue(csv.contains("RSV-ARR-01,Alice,미배정,고층 희망,HIGH_FLOOR"));
+        assertTrue(csv.contains("예약ID,고객명,신청객실타입,배정호실,배정객실보유태그,원문요청,희망태그,기피태그,필수조건미충족,조치사유\r\n"));
+        assertTrue(csv.contains("RSV-ARR-01,Alice,슈페리얼 트윈,미배정"));
     }
 
     @Test
@@ -209,4 +209,5 @@ class ReportExportServiceTest {
         assertTrue(csv.contains("예약번호,고객명,객실타입,체크인,박수,배정호실,상태,요청사항\r\n"));
         assertTrue(csv.contains("RSV-ARR-01,Alice,슈페리얼 트윈"));
     }
+
 }
