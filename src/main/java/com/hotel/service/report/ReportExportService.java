@@ -109,7 +109,7 @@ public class ReportExportService {
     public List<DepartureReportItemDto> getDepartureList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Reservation> allReservations = reservationRepository.search(
-                new ReservationSearchCondition(null, null, null, null, null, null, null,null)
+                new ReservationSearchCondition(null, null, null, null, null, null, null,null,null)
         );
 
         return allReservations.stream()
@@ -342,7 +342,7 @@ public class ReportExportService {
         List<Room> allRooms = roomRepository.findAll();
 
         ReservationSearchCondition departureCondition = new ReservationSearchCondition(
-                null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null,null
         );
         Set<String> todayDepartureRoomNumbers = reservationRepository.search(departureCondition).stream()
                 .filter(r -> r.isAssigned() && (date.equals(r.getCheckOutDate()) || date.equals(r.getActualCheckOutDate())))
@@ -416,7 +416,7 @@ public class ReportExportService {
         ReportPolicy.validateDateRange(checkInFrom, checkInTo);
 
         List<Reservation> cancelledList = reservationRepository.search(
-                        new ReservationSearchCondition(null, null, null, null, null, null, null,null)
+                        new ReservationSearchCondition(null, null, null, null, null, null, null,null,null)
                 ).stream()
                 .filter(r -> r.getStatus() == ReservationStatus.CANCELLED)
                 .filter(r -> !r.getCheckInDate().isBefore(checkInFrom) && !r.getCheckInDate().isAfter(checkInTo))
