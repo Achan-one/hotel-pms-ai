@@ -185,7 +185,7 @@ class ReservationServiceTest {
         // 7: status (ReservationStatus.CHECKED_IN)
         // 8: assignedRoomNumber (null)
         ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, today, null, null, null, ReservationStatus.CHECKED_IN, null
+                null, null, today, null, null, null, ReservationStatus.CHECKED_IN, null,null
         );
 
         List<Reservation> results = reservationService.searchReservations(condition);
@@ -236,5 +236,34 @@ class ReservationServiceTest {
         Reservation cancelled = reservationRepository.findById("RSV-CANCEL-RES").orElseThrow();
         assertEquals(ReservationStatus.CANCELLED, cancelled.getStatus());
         assertTrue(room.isAvailable(stayPeriod));
+    }
+    @Test
+    @DisplayName("[현장 운영 태그 오버라이드] 현장에서 태그 선호도를 수정해도 OTA 원본 요청 메모는 불변 보존되어야 한다")
+    void updateOperationalTags_RetainsOriginalContractData() {
+        // Given: OTA에서 "고층 전망 희망" 메모와 함께 인입된 예약
+        String rawMemo = "고층 전망 희망합니다.";
+        Reservation reservation = new Reservation(
+                "RSV-OVERRIDE-01", "Tanaka", RoomType.MODERATE_DOUBLE,
+                today, 2, rawMemo, null
+        );
+        reservationService.receiveReservations(List.of(reservation));
+
+        // When: 고객의 유선 요청으로 현장에서 "저층(LOW_FLOOR)" 및 "엘리베이터 인접(NEAR_ELEVATOR)"으로 태그 오버라이드
+        Set<String> newPreferred = Set.of("LOW_FLOOR", "NEAR_ELEVATOR");
+        Set<String> newAvoid = Set.of("HIGH_FLOOR");
+        reservationService.updateOperationalTags("RSV-OVERRIDE-01", newPreferred, newAvoid);
+
+        // Then:
+        Reservation updated = reservationRepository.findById("RSV-OVERRIDE-01").orElseThrow();
+
+        // 1. 현장 배정용 태그는 새로 수정한 태그들로 갱신 완료
+        assertEquals(newPreferred, updated.getTagPreference().preferredTags());
+        assertEquals(newAvoid, updated.getTagPreference().avoidTags());
+
+        // 2. [불변 감사 원장 검증] OTA 원문 메모와 계약 데이터는 손상 없이 온전히 보존
+        assertEquals(rawMemo, updated.getRawRequestText(), "OTA 원본 요청 메모는 절대 오염되지 않아야 합니다.");
+        assertEquals("Tanaka", updated.getOriginalGuestName());
+        assertEquals(today, updated.getContractCheckInDate());
+        assertEquals(2, updated.getContractStayNights());
     }
 }

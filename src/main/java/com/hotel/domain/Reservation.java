@@ -32,7 +32,7 @@ public class Reservation {
 
     // 3. 부가 도메인 VO
     private final GuestPreference preference;
-    private final TagPreference tagPreference;
+    private TagPreference tagPreference;
     private final BookingChannelInfo channelInfo;
     private final BreakfastOption breakfastOption;
     private final PaymentLedger paymentLedger;
@@ -148,6 +148,10 @@ public class Reservation {
         if (staffMemo != null) {
             this.internalStaffMemo = staffMemo.trim();
         }
+    }
+
+    public void updateOperationalTags(TagPreference newTagPreference) {
+        this.tagPreference = (newTagPreference != null) ? newTagPreference : TagPreference.empty();
     }
 
     public void assignRoom(String roomNumber) {

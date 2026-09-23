@@ -202,7 +202,7 @@ class ReportExportServiceTest {
     @DisplayName("[예약 원장 CSV] 전체 덤프 방어 정책을 통과한 조건부 조회가 CSV로 출력되어야 한다")
     void exportReservationsToCsv_Success() {
         ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, today, null, 2, null, null, null
+                null, null, today, null, 2, null, null, null,null
         );
         String csv = reportExportService.exportReservationsToCsv(condition);
 

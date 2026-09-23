@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/reservations")
@@ -28,13 +29,54 @@ public class ReservationController {
         this.reservationService = reservationService;
     }
 
+    public record TagOverrideApiRequest(
+            Set<String> preferredTags,
+            Set<String> avoidTags
+    ) {}
+
+    @PatchMapping("/{reservationId}/operational-tags")
+    public ResponseEntity<ApiResponse<Void>> updateOperationalTags(
+            @PathVariable String reservationId,
+            @RequestBody TagOverrideApiRequest request) {
+        try {
+            Set<String> pref = request.preferredTags() != null ? request.preferredTags() : Set.of();
+            Set<String> avoid = request.avoidTags() != null ? request.avoidTags() : Set.of();
+
+            reservationService.updateOperationalTags(reservationId, pref, avoid);
+            return ResponseEntity.ok(ApiResponse.ok("현장 운영 태그가 갱신되었습니다. 원본 예약 메모는 보존됩니다.", null));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
+        }
+    }
+
     /**
      * 예약 목록 다조건 검색
+     * - @RequestParam(value = "tag", required = false)를 명시적으로 받아
+     *   Spring Record 바인딩 누락을 원천 방어하고 condition에 확실하게 주입합니다.
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<Reservation>>> searchReservations(
-            @ModelAttribute ReservationSearchCondition condition) {
-        List<Reservation> reservations = reservationService.searchReservations(condition);
+            @ModelAttribute ReservationSearchCondition condition,
+            @RequestParam(value = "tag", required = false) String tag) {
+
+        ReservationSearchCondition finalCondition = condition;
+
+        // 쿼리스트링 ?tag=... 가 넘어왔는데 condition.tag()에 바인딩되지 않은 경우 보정 주입
+        if (tag != null && !tag.isBlank() && (condition == null || condition.tag() == null || condition.tag().isBlank())) {
+            finalCondition = new ReservationSearchCondition(
+                    condition != null ? condition.reservationId() : null,
+                    condition != null ? condition.guestName() : null,
+                    condition != null ? condition.checkInDate() : null,
+                    condition != null ? condition.stayingDate() : null,
+                    condition != null ? condition.stayNights() : null,
+                    condition != null ? condition.roomType() : null,
+                    condition != null ? condition.status() : null,
+                    condition != null ? condition.assignedRoomNumber() : null,
+                    tag.trim()
+            );
+        }
+
+        List<Reservation> reservations = reservationService.searchReservations(finalCondition);
         return ResponseEntity.ok(ApiResponse.ok(reservations));
     }
 

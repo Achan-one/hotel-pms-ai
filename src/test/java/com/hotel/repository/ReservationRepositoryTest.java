@@ -82,7 +82,7 @@ class ReservationRepositoryTest {
     @DisplayName("다조건 동적 검색(search): 체크인 날짜 + 박수 + 상태 복합 조건 필터링 검증")
     void search_ComplexCondition_Success() {
         ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, sep20, null, 2, null, ReservationStatus.PENDING, null
+                null, null, sep20, null, 2, null, ReservationStatus.PENDING, null,null
         );
 
         List<Reservation> result = repository.search(condition);

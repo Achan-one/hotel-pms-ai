@@ -289,4 +289,10 @@ public class ReservationService {
         return reservationRepository.findById(reservationId.trim())
                 .orElseThrow(() -> new NoSuchElementException("예약 원장에서 해당 예약을 찾을 수 없습니다: " + reservationId));
     }
+    public void updateOperationalTags(String reservationId, Set<String> preferredTags, Set<String> avoidTags) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+        TagPreference updatedPref = new TagPreference(preferredTags, avoidTags);
+        reservation.updateOperationalTags(updatedPref);
+        reservationRepository.save(reservation);
+    }
 }

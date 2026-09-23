@@ -116,15 +116,15 @@ public class InMemoryReservationRepository implements ReservationRepository {
             stream = stream.filter(r -> {
                 if (r.getCheckInDate() == null) return false;
 
-                // 1. 취소된 예약은 재실 대상에서 완전 배제[cite: 5]
+                // 1. 취소된 예약은 재실 대상에서 완전 배제[cite: 2]
                 if (r.getStatus() == ReservationStatus.CANCELLED) return false;
 
-                // 2. [조기 퇴실 방어] 이미 체크아웃한 고객은 실제 퇴실일(actualCheckOutDate) 기준으로 유효 종료일 재조정[cite: 5]
+                // 2. [조기 퇴실 방어] 이미 체크아웃한 고객은 실제 퇴실일(actualCheckOutDate) 기준으로 유효 종료일 재조정[cite: 2]
                 LocalDate effectiveCheckOut = (r.getStatus() == ReservationStatus.CHECKED_OUT && r.getActualCheckOutDate() != null)
                         ? r.getActualCheckOutDate()
                         : r.getCheckOutDate();
 
-                // 3. 체류 구간 판정: checkInDate <= target < effectiveCheckOut[cite: 5]
+                // 3. 체류 구간 판정: checkInDate <= target < effectiveCheckOut[cite: 2]
                 return !target.isBefore(r.getCheckInDate()) && target.isBefore(effectiveCheckOut);
             });
         }
@@ -144,6 +144,36 @@ public class InMemoryReservationRepository implements ReservationRepository {
         if (condition.assignedRoomNumber() != null && !condition.assignedRoomNumber().isBlank()) {
             String roomQuery = condition.assignedRoomNumber().trim();
             stream = stream.filter(r -> roomQuery.equals(r.getAssignedRoomNumber()));
+        }
+
+        // 🏷️ [신규] 태그 검색 조건: 선호/기피 태그 코드뿐만 아니라 한글/영문 원문 요청 메모(rawRequestText)까지 통합 매칭
+        if (condition.tag() != null && !condition.tag().isBlank()) {
+            String tagQuery = condition.tag().trim();
+            String upperQuery = tagQuery.toUpperCase();
+
+            stream = stream.filter(r -> {
+                // 1. AI가 파싱한 선호 태그(preferredTags) 코드 매칭 (대소문자 무시)
+                if (r.getTagPreference() != null) {
+                    boolean matchPref = r.getTagPreference().preferredTags().stream()
+                            .anyMatch(t -> t.toUpperCase().contains(upperQuery));
+                    if (matchPref) return true;
+
+                    // 2. 기피 태그(avoidTags) 코드 매칭 (예: 'GHOST', 'LOW_FLOOR' 등)
+                    boolean matchAvoid = r.getTagPreference().avoidTags().stream()
+                            .anyMatch(t -> t.toUpperCase().contains(upperQuery));
+                    if (matchAvoid) return true;
+                }
+
+                // 3. 고객 원문 요청사항(rawRequestText) 매칭 (한글 키워드 지원: '귀신', '도쿄타워' 등)
+                if (r.getRawRequestText() != null) {
+                    String rawText = r.getRawRequestText().trim();
+                    if (rawText.toUpperCase().contains(upperQuery) || rawText.contains(tagQuery)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
         }
 
         return stream.sorted(Comparator.comparing(Reservation::getReservationId)).toList();
