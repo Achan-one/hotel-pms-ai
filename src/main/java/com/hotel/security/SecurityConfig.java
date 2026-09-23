@@ -63,30 +63,34 @@ public class SecurityConfig {
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                 )
                 .authorizeHttpRequests(auth -> auth
-                        // 1. 공용
+                        // 1. 인증 불필요
                         .requestMatchers("/api/auth/**").permitAll()
 
-                        // 2. 룸 인디케이터
+                        // 2. 동적 태그 관리 (GET, POST, DELETE 모두 허용)
+                        .requestMatchers("/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers("/api/admin/tags").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+
+                        // 3. 룸 인디케이터
                         .requestMatchers(HttpMethod.GET, "/api/rooms/indicator").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 3. 관리자/사원 (배치 배정, 룸 체인지, 수동 배정, 배정 취소, 운영 오버라이드)
+                        // 4. 배정 및 운영 제어
                         .requestMatchers(HttpMethod.POST, "/api/reservations/batch-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/room-change").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/manual-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.DELETE, "/api/reservations/*/assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/operational-override").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
-                        // 4. 시뮬레이터
+                        // 5. 시뮬레이터
                         .requestMatchers("/api/simulation/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
-                        // 5. 체크인/체크아웃
+                        // 6. 체크인/체크아웃
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-in").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-out").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 6. 예약 조회
+                        // 7. 예약 조회
                         .requestMatchers(HttpMethod.GET, "/api/reservations/**").authenticated()
 
-                        // 7. 그 외
+                        // 8. 그 외 모든 요청
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(new JwtAuthenticationFilter(tokenProvider), UsernamePasswordAuthenticationFilter.class);

@@ -49,6 +49,13 @@ public class InMemoryTagRepository implements TagRepository {
         return sb.toString();
     }
 
+    @Override
+    public void deleteByCode(String code) {
+        if (code != null) {
+            tagStore.remove(code.trim().toUpperCase());
+        }
+    }
+
     private void initDefaultTags() {
         save(RoomTag.HIGH_FLOOR);
         save(RoomTag.LOW_FLOOR);

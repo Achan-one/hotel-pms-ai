@@ -17,4 +17,6 @@ public interface TagRepository {
     List<RoomTag> findAll();
 
     String buildPromptTagDictionary();
+
+    void deleteByCode(String code);
 }
