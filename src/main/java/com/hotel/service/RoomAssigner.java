@@ -31,7 +31,7 @@ public class RoomAssigner {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.tagRepository = (tagRepository != null) ? tagRepository : new InMemoryTagRepository();
         this.quotaPolicy = (quotaPolicy != null) ? quotaPolicy : new QuotaPolicy();
-        this.tagScoringEngine = new TagScoringEngine();
+        this.tagScoringEngine = new TagScoringEngine(this.tagRepository);
     }
 
     public Optional<Room> assign(Reservation reservation) {

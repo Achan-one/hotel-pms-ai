@@ -3,14 +3,24 @@ package com.hotel.service;
 import com.hotel.domain.Room;
 import com.hotel.domain.RoomTag;
 import com.hotel.domain.TagPreference;
+import com.hotel.repository.TagRepository;
 
+import java.util.Optional;
 import java.util.Set;
 
 public class TagScoringEngine {
 
-    private static final int DEFAULT_MATCH_SCORE = 20;    // 선호 태그 일치 시 +20점
-    private static final int DEFAULT_PENALTY_SCORE = 30;  // 기피 태그 포함 시 -30점
-    private static final int CONFLICT_PENALTY_SCORE = 45; // 정반대 물리 조건 불일치 시 -45점
+    private final TagRepository tagRepository;
+    private static final int DEFAULT_BASE_SCORE = 20;
+    private static final int CONFLICT_PENALTY_SCORE = 45; // 정반대 물리 조건 불일치 감점
+
+    public TagScoringEngine(TagRepository tagRepository) {
+        this.tagRepository = tagRepository;
+    }
+
+    public TagScoringEngine() {
+        this(null);
+    }
 
     public int calculateScore(Room room, TagPreference tagPref, int stayNights) {
         if (room == null || tagPref == null || tagPref.isEmpty()) {
@@ -21,10 +31,18 @@ public class TagScoringEngine {
         Set<String> roomTags = room.getTags();
         Set<String> prefTags = tagPref.preferredTags();
 
-        // 1. 선호 태그 스위치가 켜진 항목 매칭 (+)
+        // 1. 선호 태그 매칭 (+) : 커스텀/기본 태그의 defaultWeight를 동적으로 가져와 가산
         for (String prefTag : prefTags) {
-            if (roomTags.contains(prefTag.toUpperCase())) {
-                score += DEFAULT_MATCH_SCORE;
+            String upperCode = prefTag.toUpperCase();
+            if (roomTags.contains(upperCode)) {
+                int tagWeight = DEFAULT_BASE_SCORE;
+                if (tagRepository != null) {
+                    Optional<RoomTag> tagOpt = tagRepository.findByCode(upperCode);
+                    if (tagOpt.isPresent() && tagOpt.get().defaultWeight() > 0) {
+                        tagWeight = tagOpt.get().defaultWeight(); // 👈 관리자 지정 가중치 즉시 반영!
+                    }
+                }
+                score += tagWeight;
             }
         }
 
@@ -42,14 +60,22 @@ public class TagScoringEngine {
             score -= CONFLICT_PENALTY_SCORE;
         }
 
-        // 3. 기피 태그 스위치가 켜진 항목 매칭 시 감점 (-)
+        // 3. 기피 태그 스위치가 켜진 항목 매칭 시 감점 (-) : 해당 태그 가중치의 1.5배 비례 페널티 (최소 30점 감점)
         for (String avoidTag : tagPref.avoidTags()) {
-            if (roomTags.contains(avoidTag.toUpperCase())) {
-                score -= DEFAULT_PENALTY_SCORE;
+            String upperCode = avoidTag.toUpperCase();
+            if (roomTags.contains(upperCode)) {
+                int penalty = 30;
+                if (tagRepository != null) {
+                    Optional<RoomTag> tagOpt = tagRepository.findByCode(upperCode);
+                    if (tagOpt.isPresent() && tagOpt.get().defaultWeight() > 0) {
+                        penalty = Math.max(30, (int) (tagOpt.get().defaultWeight() * 1.5));
+                    }
+                }
+                score -= penalty;
             }
         }
 
-        // 4. 연박 가중치: 점수가 양수일 때만 1.3배 증폭 (음수 감점이 깎이지 않도록 방어)
+        // 4. 연박 가중치: 점수가 양수일 때만 1.3배 증폭 (음수 감점이 완화되지 않도록 방어)
         if (stayNights >= 3 && score > 0) {
             score = (int) (score * 1.3);
         }
