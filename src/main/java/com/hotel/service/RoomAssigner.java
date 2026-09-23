@@ -213,7 +213,7 @@ public class RoomAssigner {
         boolean requestedHighFloor = (pref != null && pref.getFloorPref() == FloorPref.HIGH)
                 || (tagPref != null && (
                 tagPref.preferredTags().contains(RoomTag.HIGH_FLOOR.code())
-                        || tagPref.preferredTags().contains(RoomTag.VIEW_TOKYO_TOWER.code())
+                        || tagPref.preferredTags().contains("VIEW_TOKYO_TOWER")
         ));
 
         if (!requestedHighFloor && stayNights < 5) {
