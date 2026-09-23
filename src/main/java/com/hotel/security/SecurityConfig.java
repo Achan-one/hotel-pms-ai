@@ -63,10 +63,13 @@ public class SecurityConfig {
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                 )
                 .authorizeHttpRequests(auth -> auth
-                        // 1. 인증 불필요
+                        // 0. 브라우저의 CORS Preflight (OPTIONS) 사전 검사는 인증 없이 무조건 허용
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // 1. 로그인/토큰 발급 허용
                         .requestMatchers("/api/auth/**").permitAll()
 
-                        // 2. 동적 태그 관리 (GET, POST, DELETE 모두 허용)
+                        // 2. 동적 태그 관리 (ADMIN, STAFF 권한 유지)
                         .requestMatchers("/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers("/api/admin/tags").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
