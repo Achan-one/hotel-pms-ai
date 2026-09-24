@@ -78,6 +78,7 @@ public class SecurityConfig {
 
                         // 2. 로그인/토큰 발급 허용
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/admin/staff").hasAuthority("ROLE_ADMIN")
 
                         // 3. 동적 태그 관리 (ADMIN, STAFF 권한 유지)
                         .requestMatchers("/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
