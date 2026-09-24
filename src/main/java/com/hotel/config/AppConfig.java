@@ -7,9 +7,9 @@ import com.hotel.domain.QuotaPolicy;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
-import com.hotel.repository.memory.InMemoryReservationRepository;
-import com.hotel.repository.memory.InMemoryRoomRepository;
-import com.hotel.repository.memory.InMemoryTagRepository;
+import com.hotel.repository.rdb.JpaReservationRepository;
+import com.hotel.repository.rdb.JpaRoomRepository;
+import com.hotel.repository.rdb.JpaTagRepository;
 import com.hotel.service.*;
 import com.hotel.service.report.ReportExportService;
 import org.springframework.context.annotation.Bean;
@@ -18,20 +18,20 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AppConfig {
 
-    // 1. 저장소 계층 (인메모리 싱글톤)
+    // 1. 저장소 계층 (인메모리에서 JPA 어댑터 빈으로 교체)
     @Bean
-    public RoomRepository roomRepository() {
-        return new InMemoryRoomRepository();
+    public RoomRepository roomRepository(JpaRoomRepository jpaRoomRepository) {
+        return jpaRoomRepository;
     }
 
     @Bean
-    public ReservationRepository reservationRepository() {
-        return new InMemoryReservationRepository();
+    public ReservationRepository reservationRepository(JpaReservationRepository jpaReservationRepository) {
+        return jpaReservationRepository;
     }
 
     @Bean
-    public TagRepository tagRepository() {
-        return new InMemoryTagRepository();
+    public TagRepository tagRepository(JpaTagRepository jpaTagRepository) {
+        return jpaTagRepository;
     }
 
     // 2. 운영 정책 및 AI 파서
