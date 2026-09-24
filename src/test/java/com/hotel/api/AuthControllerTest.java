@@ -2,15 +2,21 @@ package com.hotel.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hotel.domain.StaffAccount;
+import com.hotel.domain.StaffRole;
+import com.hotel.repository.StaffRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -25,6 +31,23 @@ class AuthControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private StaffRepository staffRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void setUp() {
+        // staff 계정 픽스처 보장
+        staffRepository.save(new StaffAccount(
+                "staff",
+                passwordEncoder.encode("hotel1234"),
+                "정규사원",
+                StaffRole.ROLE_STAFF
+        ));
+    }
 
     @Test
     @DisplayName("[인증] 유효한 계정으로 로그인 시 200 OK와 함께 JWT 토큰이 발급되어야 한다")
@@ -66,7 +89,6 @@ class AuthControllerTest {
     @Test
     @DisplayName("[엔드투엔드] 로그인하여 발급받은 JWT 토큰으로 보호된 예약 API를 성공적으로 호출할 수 있어야 한다")
     void loginAndAccessProtectedApi_Success() throws Exception {
-        // 1. staff 계정으로 로그인하여 토큰 획득
         String loginPayload = """
                 {
                     "staffId": "staff",
@@ -82,11 +104,10 @@ class AuthControllerTest {
 
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
         String token = root.path("data").path("token").asText();
+        assertNotNull(token);
 
-        // 2. 발급받은 Bearer 토큰으로 보호된 API 호출
         mockMvc.perform(get("/api/reservations/RSV-TARGET")
                         .header("Authorization", "Bearer " + token))
-                // 예약이 없으므로 404를 반환하되, 인증 필터는 통과(401이 아님)해야 함
                 .andExpect(status().isNotFound());
     }
 }
