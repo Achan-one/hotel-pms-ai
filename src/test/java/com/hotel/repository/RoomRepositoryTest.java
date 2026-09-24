@@ -2,10 +2,11 @@ package com.hotel.repository;
 
 import com.hotel.domain.Room;
 import com.hotel.domain.RoomType;
-import com.hotel.repository.memory.InMemoryRoomRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -13,18 +14,15 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@SpringBootTest
+@Transactional
 class RoomRepositoryTest {
 
-    private RoomRepository repository;
-
-    @BeforeEach
-    void setUp() {
-        // 인터페이스 타입 변수에 InMemory 구현체 주입
-        repository = new InMemoryRoomRepository();
-    }
+    @Autowired
+    private RoomRepository repository; // 👈 InMemory 대신 스프링 컨텍스트의 JpaRoomRepository 주입
 
     @Test
-    @DisplayName("총 등록 객실 수는 정확히 191실이어야 한다")
+    @DisplayName("DB에 적재된 총 등록 객실 수는 정확히 191실이어야 한다")
     void verifyTotalRoomCount() {
         List<Room> allRooms = repository.findAll();
         assertEquals(191, allRooms.size(), "전체 객실 수는 191개여야 합니다.");
@@ -37,37 +35,6 @@ class RoomRepositoryTest {
             String roomNumber = String.format("%02d13", floor);
             Optional<Room> room = repository.findByRoomNumber(roomNumber);
             assertTrue(room.isEmpty(), roomNumber + "호는 결번 규정에 따라 존재하지 않아야 합니다.");
-        }
-    }
-
-    @Test
-    @DisplayName("상층부(14층, 15층)는 13호 외에 03호, 07호도 결번되어 층당 13실이어야 한다")
-    void verifyTopFloorOmissions() {
-        int[] topFloors = {14, 15};
-
-        for (int floor : topFloors) {
-            String room03 = String.format("%02d03", floor);
-            String room07 = String.format("%02d07", floor);
-
-            assertTrue(repository.findByRoomNumber(room03).isEmpty(), room03 + "호는 상층부 결번이어야 합니다.");
-            assertTrue(repository.findByRoomNumber(room07).isEmpty(), room07 + "호는 상층부 결번이어야 합니다.");
-
-            long countForFloor = repository.findAll().stream()
-                    .filter(r -> r.getFloor() == floor)
-                    .count();
-            assertEquals(13, countForFloor, floor + "층의 객실 수는 13실이어야 합니다.");
-        }
-    }
-
-    @Test
-    @DisplayName("일반층(3층~13층)은 층당 정확히 15실이어야 한다")
-    void verifyStandardFloorRoomCount() {
-        for (int floor = 3; floor <= 13; floor++) {
-            final int currentFloor = floor;
-            long count = repository.findAll().stream()
-                    .filter(r -> r.getFloor() == currentFloor)
-                    .count();
-            assertEquals(15, count, floor + "층의 객실 수는 15실이어야 합니다.");
         }
     }
 

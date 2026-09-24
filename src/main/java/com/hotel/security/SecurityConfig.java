@@ -8,6 +8,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -55,7 +56,13 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(AbstractHttpConfigurer::disable)
+
+                // 1. REST API는 CSRF 비활성화하되, H2 콘솔 자체 폼 요청 또한 차단되지 않도록 방어
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**").disable())
+
+                // 2. H2 웹 콘솔의 iframe 프레임 렌더링 허용 (SAMEORIGIN)
+                .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin))
+
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -66,37 +73,40 @@ public class SecurityConfig {
                         // 0. 브라우저의 CORS Preflight (OPTIONS) 사전 검사는 인증 없이 무조건 허용
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // 1. 로그인/토큰 발급 허용
+                        // 1. H2 콘솔 웹 경로 전면 허용
+                        .requestMatchers("/h2-console/**").permitAll()
+
+                        // 2. 로그인/토큰 발급 허용
                         .requestMatchers("/api/auth/**").permitAll()
 
-                        // 2. 동적 태그 관리 (ADMIN, STAFF 권한 유지)
+                        // 3. 동적 태그 관리 (ADMIN, STAFF 권한 유지)
                         .requestMatchers("/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers("/api/admin/tags").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
-                        // 3. 룸 인디케이터
+                        // 4. 룸 인디케이터
                         .requestMatchers(HttpMethod.GET, "/api/rooms/indicator").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 4. 배정 및 운영 제어
+                        // 5. 배정 및 운영 제어
                         .requestMatchers(HttpMethod.POST, "/api/reservations/batch-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/room-change").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/manual-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.DELETE, "/api/reservations/*/assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/operational-override").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
-                        // 5. 실무 리포트 CSV 다운로드 엔드포인트 허용 (전 직원 역할 인가)
+                        // 6. 실무 리포트 CSV 다운로드 엔드포인트 허용 (전 직원 역할 인가)
                         .requestMatchers("/api/reports/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 6. 시뮬레이터
+                        // 7. 시뮬레이터
                         .requestMatchers("/api/simulation/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
-                        // 7. 체크인/체크아웃
+                        // 8. 체크인/체크아웃
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-in").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-out").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 8. 예약 조회
+                        // 9. 예약 조회
                         .requestMatchers(HttpMethod.GET, "/api/reservations/**").authenticated()
 
-                        // 9. 그 외 모든 요청
+                        // 10. 그 외 모든 요청
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(new JwtAuthenticationFilter(tokenProvider), UsernamePasswordAuthenticationFilter.class);
