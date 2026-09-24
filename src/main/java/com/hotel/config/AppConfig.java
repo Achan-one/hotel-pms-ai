@@ -14,22 +14,26 @@ import com.hotel.service.*;
 import com.hotel.service.report.ReportExportService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 @Configuration
 public class AppConfig {
 
-    // 1. 저장소 계층 (인메모리에서 JPA 어댑터 빈으로 교체)
+    // 1. 저장소 계층 (JPA 구현체 빈 우선 주입)
     @Bean
+    @Primary
     public RoomRepository roomRepository(JpaRoomRepository jpaRoomRepository) {
         return jpaRoomRepository;
     }
 
     @Bean
+    @Primary
     public ReservationRepository reservationRepository(JpaReservationRepository jpaReservationRepository) {
         return jpaReservationRepository;
     }
 
     @Bean
+    @Primary
     public TagRepository tagRepository(JpaTagRepository jpaTagRepository) {
         return jpaTagRepository;
     }
