@@ -11,9 +11,12 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Repository
 public class JpaRoomRepository implements RoomRepository {
@@ -42,7 +45,6 @@ public class JpaRoomRepository implements RoomRepository {
         room.getTags().forEach(entity::addTag);
         roomJpaRepo.save(entity);
 
-        // 스케줄 동기화 (기존 스케줄과 도메인의 bookedPeriods 동기화)
         List<RoomScheduleEntity> existingSchedules = scheduleJpaRepo.findByRoomNumber(room.getRoomNumber());
         List<StayPeriod> currentPeriods = room.getBookedPeriods();
 
@@ -78,6 +80,7 @@ public class JpaRoomRepository implements RoomRepository {
             return toDomain(entity, schedules);
         });
     }
+
     @Override
     @Transactional
     public Optional<Room> findByRoomNumberForUpdate(String roomNumber) {
@@ -93,9 +96,18 @@ public class JpaRoomRepository implements RoomRepository {
     @Transactional(readOnly = true)
     public List<Room> findAll() {
         List<RoomEntity> entities = roomJpaRepo.findAll();
+        if (entities.isEmpty()) return Collections.emptyList();
+
+        List<String> roomNumbers = entities.stream().map(RoomEntity::getRoomNumber).toList();
+
+        // 🚀 N+1 방어: 191번 개별 쿼리 대신 IN 절 1회로 모든 스케줄 조회
+        List<RoomScheduleEntity> allSchedules = scheduleJpaRepo.findByRoomNumberIn(roomNumbers);
+        Map<String, List<RoomScheduleEntity>> scheduleMap = allSchedules.stream()
+                .collect(Collectors.groupingBy(RoomScheduleEntity::getRoomNumber));
+
         List<Room> result = new ArrayList<>();
         for (RoomEntity e : entities) {
-            List<RoomScheduleEntity> schedules = scheduleJpaRepo.findByRoomNumber(e.getRoomNumber());
+            List<RoomScheduleEntity> schedules = scheduleMap.getOrDefault(e.getRoomNumber(), Collections.emptyList());
             result.add(toDomain(e, schedules));
         }
         return result;
