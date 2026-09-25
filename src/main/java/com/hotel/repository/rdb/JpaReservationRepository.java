@@ -135,6 +135,9 @@ public class JpaReservationRepository implements ReservationRepository {
         if (condition.assignedRoomNumber() != null && !condition.assignedRoomNumber().isBlank()) {
             predicates.add(cb.equal(root.get("assignedRoomNumber"), condition.assignedRoomNumber().trim()));
         }
+        if (condition.otaChannel() != null && !condition.otaChannel().isBlank()) {
+            predicates.add(cb.equal(cb.upper(root.get("otaChannel")), condition.otaChannel().trim().toUpperCase()));
+        }
 
         // 태그 및 고객 요청 원문 DB 검색
         if (condition.tag() != null && !condition.tag().isBlank()) {

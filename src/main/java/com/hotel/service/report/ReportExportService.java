@@ -3,7 +3,6 @@ package com.hotel.service.report;
 import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
-import com.hotel.repository.TagRepository;
 import com.hotel.service.RoomAssigner;
 import com.hotel.service.dto.AssignmentAlert;
 import com.hotel.service.dto.ReservationSearchCondition;
@@ -109,9 +108,7 @@ public class ReportExportService {
     // =========================================================================
     public List<DepartureReportItemDto> getDepartureList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
-        List<Reservation> allReservations = reservationRepository.search(
-                new ReservationSearchCondition(null, null, null, null, null, null, null, null, null)
-        );
+        List<Reservation> allReservations = reservationRepository.search(ReservationSearchCondition.empty());
 
         return allReservations.stream()
                 .filter(r -> date.equals(r.getCheckOutDate()) || date.equals(r.getActualCheckOutDate()))
@@ -287,7 +284,7 @@ public class ReportExportService {
             if (rsv.isAssigned()) {
                 Room room = roomRepository.findByRoomNumber(roomNo).orElse(null);
                 if (room != null) {
-                    assignedTags = String.join("|", room.getTags()); // 👈 배정된 방의 실제 보유 태그 추출
+                    assignedTags = String.join("|", room.getTags());
                     List<AssignmentAlert> alerts = roomAssigner.checkHardRequestAlerts(rsv, room);
                     if (!alerts.isEmpty()) {
                         hasHardFail = true;
@@ -344,10 +341,7 @@ public class ReportExportService {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Room> allRooms = roomRepository.findAll();
 
-        ReservationSearchCondition departureCondition = new ReservationSearchCondition(
-                null, null, null, null, null, null, null, null, null
-        );
-        Set<String> todayDepartureRoomNumbers = reservationRepository.search(departureCondition).stream()
+        Set<String> todayDepartureRoomNumbers = reservationRepository.search(ReservationSearchCondition.empty()).stream()
                 .filter(r -> r.isAssigned() && (date.equals(r.getCheckOutDate()) || date.equals(r.getActualCheckOutDate())))
                 .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
                 .map(Reservation::getAssignedRoomNumber)
@@ -418,9 +412,7 @@ public class ReportExportService {
     public String exportCancellationAuditLedgerToCsv(LocalDate checkInFrom, LocalDate checkInTo) {
         ReportPolicy.validateDateRange(checkInFrom, checkInTo);
 
-        List<Reservation> cancelledList = reservationRepository.search(
-                        new ReservationSearchCondition(null, null, null, null, null, null, null, null, null)
-                ).stream()
+        List<Reservation> cancelledList = reservationRepository.search(ReservationSearchCondition.empty()).stream()
                 .filter(r -> r.getStatus() == ReservationStatus.CANCELLED)
                 .filter(r -> !r.getCheckInDate().isBefore(checkInFrom) && !r.getCheckInDate().isAfter(checkInTo))
                 .sorted(Comparator.comparing(Reservation::getCheckInDate))
@@ -441,7 +433,7 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 9. [신규] 룸 태그 인디케이터 (1) - 191실 전수 방 기준 보유 태그 리포트
+    // 9. 룸 태그 인디케이터 (1) - 191실 전수 방 기준 보유 태그 리포트
     // =========================================================================
     public String exportRoomTagsToCsv() {
         List<Room> allRooms = roomRepository.findAll().stream()
@@ -465,14 +457,13 @@ public class ReportExportService {
     }
 
     // =========================================================================
-    // 10. [신규] 룸 태그 인디케이터 (2) - 태그 기준 해당 객실 목록 매핑 리포트
+    // 10. 룸 태그 인디케이터 (2) - 태그 기준 해당 객실 목록 매핑 리포트
     // =========================================================================
     public record TagRoomMappingRow(String tagCode, int matchedRoomCount, String matchedRooms) {}
 
     public String exportTagToRoomsMatrixToCsv() {
         List<Room> allRooms = roomRepository.findAll();
 
-        // 1. 전체 객실에 분포한 고유 태그 목록 집계
         Set<String> allTags = new TreeSet<>();
         for (Room r : allRooms) {
             allTags.addAll(r.getTags());

@@ -208,7 +208,7 @@ class ReservationServiceTest {
         reservationService.processCheckIn("RSV-SEARCH-01");
 
         ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, today, null, null, null, ReservationStatus.CHECKED_IN, null, null
+                null, null, today, null, null, null, ReservationStatus.CHECKED_IN, null, null,null
         );
 
         List<Reservation> results = reservationService.searchReservations(condition);

@@ -56,7 +56,7 @@ public class ReportExportController {
                 ? ReservationStatus.valueOf(status.toUpperCase()) : null;
 
         ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, start, null, null, null, resStatus, null, null
+                null, null, start, null, null, null, resStatus, null, null,null
         );
 
         String csvString = reportExportService.exportReservationsToCsv(condition);

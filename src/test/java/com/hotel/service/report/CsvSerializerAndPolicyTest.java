@@ -39,7 +39,7 @@ class CsvSerializerAndPolicyTest {
     @DisplayName("[ReportPolicy] 조건이 전혀 없는 빈 검색 조건 전달 시 전체 덤프 방어로 예외가 발생해야 한다")
     void validateExportCondition_EmptyCondition_ThrowsException() {
         ReservationSearchCondition emptyCondition = new ReservationSearchCondition(
-                null, null, null, null, null, null, null, null,null
+                null, null, null, null, null, null, null, null,null,null
         );
 
         assertThrows(IllegalArgumentException.class, () ->
@@ -56,13 +56,13 @@ class CsvSerializerAndPolicyTest {
 
         // checkInDate=today, stayingDate=null, stayNights=31 (정상 범위: 8개 인자 순서 일치)
         ReservationSearchCondition validCondition = new ReservationSearchCondition(
-                null, null, today, null, 31, null, null, null,null
+                null, null, today, null, 31, null, null, null,null,null
         );
         assertDoesNotThrow(() -> ReportPolicy.validateExportCondition(validCondition));
 
         // checkInDate=today, stayingDate=null, stayNights=32 (31박 초과: 예외 발생)
         ReservationSearchCondition invalidCondition = new ReservationSearchCondition(
-                null, null, today, null, 32, null, null, null,null
+                null, null, today, null, 32, null, null, null,null,null
         );
         assertThrows(IllegalArgumentException.class, () ->
                 ReportPolicy.validateExportCondition(invalidCondition));
