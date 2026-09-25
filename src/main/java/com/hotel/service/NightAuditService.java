@@ -26,18 +26,21 @@ public class NightAuditService {
 
     private final ReservationRepository reservationRepository;
     private final RoomRepository roomRepository;
+    private final HotelOperationService hotelOperationService; // 👈 1. DB 영업일자 관리 서비스 주입
 
     public NightAuditService(ReservationRepository reservationRepository,
-                             RoomRepository roomRepository) {
+                             RoomRepository roomRepository,
+                             HotelOperationService hotelOperationService) { // 👈 2. 생성자 파라미터 추가
         this.reservationRepository = Objects.requireNonNull(reservationRepository);
         this.roomRepository = Objects.requireNonNull(roomRepository);
+        this.hotelOperationService = Objects.requireNonNull(hotelOperationService);
     }
 
     /**
-     * 🏨 [나이트 오딧 실행]
+     * [나이트 오딧 실행]
      * 1. 당일 노쇼(미체크인) 전산 처리 및 객실 스케줄 회수
      * 2. 인하우스(재실) 고객 1박 숙박료 청구원장(PaymentLedger) 자동 포스팅
-     * 3. 영업일자 익일 롤오버
+     * 3. DB 시스템 영업일자 익일 롤오버 (영구 보존)
      */
     public NightAuditResult runNightAudit(LocalDate currentBusinessDate) {
         Objects.requireNonNull(currentBusinessDate, "영업일자는 필수입니다.");
@@ -91,7 +94,9 @@ public class NightAuditService {
             postedCount++;
         }
 
-        LocalDate nextBusinessDate = currentBusinessDate.plusDays(1);
+        // 3. 🚀 DB 시스템 영업일자 익일 롤오버 (DB 단일 진실 공급원 전진 및 영구 저장)
+        LocalDate nextBusinessDate = hotelOperationService.rolloverToNextDate();
+
         log.info("✅ [Night Audit] 마감 완료 - 노쇼: {}건, 룸차지 포스팅: {}실(총 ¥{}), 롤오버: {} -> {}",
                 noShowIds.size(), postedCount, totalRevenue, currentBusinessDate, nextBusinessDate);
 

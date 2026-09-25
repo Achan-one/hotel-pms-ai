@@ -26,6 +26,7 @@ class NightAuditServiceTest {
 
     private ReservationRepository reservationRepository;
     private RoomRepository roomRepository;
+    private HotelOperationService hotelOperationService;
     private NightAuditService nightAuditService;
 
     private final LocalDate businessDate = LocalDate.of(2026, 9, 20);
@@ -34,7 +35,29 @@ class NightAuditServiceTest {
     void setUp() {
         reservationRepository = new InMemoryReservationRepository();
         roomRepository = new InMemoryRoomRepository();
-        nightAuditService = new NightAuditService(reservationRepository, roomRepository);
+
+        // 💡 Java 25 호환: Byte Buddy 충돌을 피하기 위해 Mockito 대신 경량 Fake 인스턴스 사용
+        hotelOperationService = new HotelOperationService(null) {
+            private LocalDate currentDate = businessDate;
+
+            @Override
+            public LocalDate getCurrentBusinessDate() {
+                return currentDate;
+            }
+
+            @Override
+            public LocalDate rolloverToNextDate() {
+                this.currentDate = this.currentDate.plusDays(1);
+                return this.currentDate;
+            }
+
+            @Override
+            public void setBusinessDate(LocalDate newDate) {
+                this.currentDate = newDate;
+            }
+        };
+
+        nightAuditService = new NightAuditService(reservationRepository, roomRepository, hotelOperationService);
     }
 
     @Test
