@@ -6,11 +6,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 public interface SpringDataScheduleRepository extends JpaRepository<RoomScheduleEntity, Long> {
 
     List<RoomScheduleEntity> findByRoomNumber(String roomNumber);
+
+    // 🚀 N+1 방어: 여러 객실의 스케줄을 단 1회의 IN 절 쿼리로 일괄 조회
+    List<RoomScheduleEntity> findByRoomNumberIn(Collection<String> roomNumbers);
 
     List<RoomScheduleEntity> findByReservationId(String reservationId);
 

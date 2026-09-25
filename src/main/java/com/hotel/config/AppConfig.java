@@ -68,19 +68,13 @@ public class AppConfig {
     }
 
     // 4. 핵심 서비스 계층
+    // 💡 ReservationService는 클래스 상단의 @Service를 통해 스프링이 직접 빈을 관리하므로
+    //    여기서 중복으로 수동 등록하지 않습니다 (빈 이름 충돌 방지).
+
     @Bean
-    public ReservationService reservationService(ReservationRepository reservationRepository,
-                                                 RoomRepository roomRepository,
-                                                 AiPreferenceParser aiPreferenceParser,
-                                                 TagRepository tagRepository,
-                                                 QuotaPolicy quotaPolicy) {
-        return new ReservationService(
-                reservationRepository,
-                roomRepository,
-                aiPreferenceParser,
-                tagRepository,
-                quotaPolicy
-        );
+    public NightAuditService nightAuditService(ReservationRepository reservationRepository,
+                                               RoomRepository roomRepository) {
+        return new NightAuditService(reservationRepository, roomRepository);
     }
 
     @Bean

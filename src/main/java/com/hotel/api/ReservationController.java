@@ -5,7 +5,9 @@ import com.hotel.api.dto.BatchAssignApiRequest;
 import com.hotel.api.dto.RoomChangeApiRequest;
 import com.hotel.domain.Reservation;
 import com.hotel.service.BatchAssignmentResult;
+import com.hotel.service.NightAuditService;
 import com.hotel.service.ReservationService;
+import com.hotel.service.dto.NightAuditResult;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
@@ -24,9 +26,13 @@ import java.util.Set;
 public class ReservationController {
 
     private final ReservationService reservationService;
+    private final NightAuditService nightAuditService;
 
-    public ReservationController(ReservationService reservationService) {
+    // 단일 생성자로 정의하여 final 필드 초기화 누락 방지 및 스프링 자동 주입 보장
+    public ReservationController(ReservationService reservationService,
+                                 NightAuditService nightAuditService) {
         this.reservationService = reservationService;
+        this.nightAuditService = nightAuditService;
     }
 
     public record TagOverrideApiRequest(
@@ -237,6 +243,18 @@ public class ReservationController {
         } catch (NoSuchElementException e) {
             return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
         }
+    }
+
+    /**
+     * [나이트 오딧 실행] 자정 마감 정산 및 노쇼 일괄 정리
+     * POST /api/reservations/night-audit?targetDate=2026-09-20
+     */
+    @PostMapping("/night-audit")
+    public ResponseEntity<ApiResponse<NightAuditResult>> runNightAudit(
+            @RequestParam(required = false) LocalDate targetDate) {
+        LocalDate effectiveDate = (targetDate != null) ? targetDate : LocalDate.now();
+        NightAuditResult result = nightAuditService.runNightAudit(effectiveDate);
+        return ResponseEntity.ok(ApiResponse.ok(result.message(), result));
     }
 
     private String normalizeRoomNumber(String input) {

@@ -6,17 +6,30 @@ import com.hotel.entity.ReservationEntity;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.jpa.SpringDataReservationRepository;
 import com.hotel.service.dto.ReservationSearchCondition;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.*;
-import java.util.stream.Stream;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 @Repository
 public class JpaReservationRepository implements ReservationRepository {
 
     private final SpringDataReservationRepository jpaRepo;
+
+    @PersistenceContext
+    private EntityManager em;
 
     public JpaReservationRepository(SpringDataReservationRepository jpaRepo) {
         this.jpaRepo = Objects.requireNonNull(jpaRepo);
@@ -88,58 +101,69 @@ public class JpaReservationRepository implements ReservationRepository {
                 .sorted(Comparator.comparing(Reservation::getReservationId)).toList();
     }
 
+    /**
+     * 🚀 OOM 방어: 전체 테이블 메모리 로딩 제거 -> JPA Criteria DB 동적 쿼리 실행
+     */
     @Override
     @Transactional(readOnly = true)
     public List<Reservation> search(ReservationSearchCondition condition) {
         if (condition == null) return findAll();
 
-        Stream<Reservation> stream = jpaRepo.findAll().stream().map(ReservationEntity::toDomain);
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        CriteriaQuery<ReservationEntity> cq = cb.createQuery(ReservationEntity.class);
+        Root<ReservationEntity> root = cq.from(ReservationEntity.class);
+        List<Predicate> predicates = new ArrayList<>();
 
         if (condition.reservationId() != null && !condition.reservationId().isBlank()) {
-            String q = condition.reservationId().trim().toLowerCase();
-            stream = stream.filter(r -> r.getReservationId().toLowerCase().contains(q));
+            predicates.add(cb.like(cb.lower(root.get("reservationId")), "%" + condition.reservationId().trim().toLowerCase() + "%"));
         }
         if (condition.guestName() != null && !condition.guestName().isBlank()) {
-            String q = condition.guestName().trim().toLowerCase();
-            stream = stream.filter(r -> r.getGuestName() != null && r.getGuestName().toLowerCase().contains(q));
+            predicates.add(cb.like(cb.lower(root.get("operationalGuestName")), "%" + condition.guestName().trim().toLowerCase() + "%"));
         }
         if (condition.checkInDate() != null) {
-            stream = stream.filter(r -> condition.checkInDate().equals(r.getCheckInDate()));
+            predicates.add(cb.equal(root.get("operationalCheckInDate"), condition.checkInDate()));
         }
+        if (condition.stayNights() != null && condition.stayNights() > 0) {
+            predicates.add(cb.equal(root.get("operationalStayNights"), condition.stayNights()));
+        }
+        if (condition.roomType() != null) {
+            predicates.add(cb.equal(root.get("bookedRoomType"), condition.roomType()));
+        }
+        if (condition.status() != null) {
+            predicates.add(cb.equal(root.get("status"), condition.status()));
+        }
+        if (condition.assignedRoomNumber() != null && !condition.assignedRoomNumber().isBlank()) {
+            predicates.add(cb.equal(root.get("assignedRoomNumber"), condition.assignedRoomNumber().trim()));
+        }
+
+        // 태그 및 고객 요청 원문 DB 검색
+        if (condition.tag() != null && !condition.tag().isBlank()) {
+            String q = "%" + condition.tag().trim().toUpperCase() + "%";
+            Predicate prefTagMatch = cb.like(cb.upper(root.get("preferredTagsCsv")), q);
+            Predicate avoidTagMatch = cb.like(cb.upper(root.get("avoidTagsCsv")), q);
+            Predicate rawTextMatch = cb.like(cb.upper(root.get("rawRequestText")), q);
+            predicates.add(cb.or(prefTagMatch, avoidTagMatch, rawTextMatch));
+        }
+
+        cq.where(predicates.toArray(new Predicate[0]));
+        cq.orderBy(cb.asc(root.get("reservationId")));
+
+        List<Reservation> results = em.createQuery(cq).getResultList().stream()
+                .map(ReservationEntity::toDomain)
+                .toList();
+
+        // stayingDate(체류일자) 반개구간 계산 필터링
         if (condition.stayingDate() != null) {
             LocalDate target = condition.stayingDate();
-            stream = stream.filter(r -> {
+            results = results.stream().filter(r -> {
                 if (r.getCheckInDate() == null || r.getStatus() == ReservationStatus.CANCELLED) return false;
                 LocalDate effectiveCheckOut = (r.getStatus() == ReservationStatus.CHECKED_OUT && r.getActualCheckOutDate() != null)
                         ? r.getActualCheckOutDate() : r.getCheckOutDate();
                 return !target.isBefore(r.getCheckInDate()) && target.isBefore(effectiveCheckOut);
-            });
-        }
-        if (condition.stayNights() != null && condition.stayNights() > 0) {
-            stream = stream.filter(r -> r.getStayNights() == condition.stayNights());
-        }
-        if (condition.roomType() != null) {
-            stream = stream.filter(r -> r.getBookedRoomType() == condition.roomType());
-        }
-        if (condition.status() != null) {
-            stream = stream.filter(r -> r.getStatus() == condition.status());
-        }
-        if (condition.assignedRoomNumber() != null && !condition.assignedRoomNumber().isBlank()) {
-            String roomQuery = condition.assignedRoomNumber().trim();
-            stream = stream.filter(r -> roomQuery.equals(r.getAssignedRoomNumber()));
-        }
-        if (condition.tag() != null && !condition.tag().isBlank()) {
-            String upperQuery = condition.tag().trim().toUpperCase();
-            stream = stream.filter(r -> {
-                if (r.getTagPreference() != null) {
-                    if (r.getTagPreference().preferredTags().stream().anyMatch(t -> t.toUpperCase().contains(upperQuery))) return true;
-                    if (r.getTagPreference().avoidTags().stream().anyMatch(t -> t.toUpperCase().contains(upperQuery))) return true;
-                }
-                return r.getRawRequestText() != null && r.getRawRequestText().toUpperCase().contains(upperQuery);
-            });
+            }).toList();
         }
 
-        return stream.sorted(Comparator.comparing(Reservation::getReservationId)).toList();
+        return results;
     }
 
     @Override
