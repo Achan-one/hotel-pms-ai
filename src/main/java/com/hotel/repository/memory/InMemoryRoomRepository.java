@@ -36,6 +36,11 @@ public class InMemoryRoomRepository implements RoomRepository {
         }
         return Optional.ofNullable(roomStore.get(roomNumber.trim()));
     }
+    //단위 테스트 에러 방지용 오버라이딩
+    @Override
+    public Optional<Room> findByRoomNumberForUpdate(String roomNumber) {
+        return findByRoomNumber(roomNumber); // 인메모리는 내부 ReentrantLock 활용
+    }
 
     @Override
     public List<Room> findAll() {

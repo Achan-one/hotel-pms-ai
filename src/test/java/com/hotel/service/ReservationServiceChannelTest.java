@@ -1,11 +1,20 @@
 package com.hotel.service;
 
 import com.hotel.channel.dto.ChannelReservationRequest;
-import com.hotel.domain.*;
+import com.hotel.domain.GuestPreference;
+import com.hotel.domain.QuotaPolicy;
+import com.hotel.domain.Reservation;
+import com.hotel.domain.ReservationStatus;
+import com.hotel.domain.Room;
+import com.hotel.domain.RoomStatus;
+import com.hotel.domain.RoomType;
+import com.hotel.domain.StayPeriod;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.TagRepository;
 import com.hotel.repository.memory.InMemoryReservationRepository;
 import com.hotel.repository.memory.InMemoryRoomRepository;
+import com.hotel.repository.memory.InMemoryTagRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,7 +22,10 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReservationServiceChannelTest {
 
@@ -27,7 +39,16 @@ class ReservationServiceChannelTest {
     void setUp() {
         reservationRepository = new InMemoryReservationRepository();
         roomRepository = new InMemoryRoomRepository();
-        reservationService = new ReservationService(reservationRepository, roomRepository, null);
+        TagRepository tagRepository = new InMemoryTagRepository();
+        QuotaPolicy quotaPolicy = new QuotaPolicy();
+
+        reservationService = new ReservationService(
+                reservationRepository,
+                roomRepository,
+                null,
+                tagRepository,
+                quotaPolicy
+        );
     }
 
     @Test
