@@ -105,7 +105,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-out").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 9. 예약 조회
-                        .requestMatchers(HttpMethod.GET, "/api/reservations/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/reservations", "/api/reservations/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 10. 그 외 모든 요청
                         .anyRequest().authenticated()

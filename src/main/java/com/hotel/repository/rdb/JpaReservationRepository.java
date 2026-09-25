@@ -1,5 +1,6 @@
 package com.hotel.repository.rdb;
 
+import com.hotel.domain.BookingChannelInfo;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.ReservationStatus;
 import com.hotel.entity.ReservationEntity;
@@ -102,7 +103,7 @@ public class JpaReservationRepository implements ReservationRepository {
     }
 
     /**
-     * 🚀 OOM 방어: 전체 테이블 메모리 로딩 제거 -> JPA Criteria DB 동적 쿼리 실행
+     * Criteria 기반 동적 쿼리 검색
      */
     @Override
     @Transactional(readOnly = true)
@@ -135,11 +136,24 @@ public class JpaReservationRepository implements ReservationRepository {
         if (condition.assignedRoomNumber() != null && !condition.assignedRoomNumber().isBlank()) {
             predicates.add(cb.equal(root.get("assignedRoomNumber"), condition.assignedRoomNumber().trim()));
         }
+
+        // 🌐 OTA 채널 검색: channelType Enum 매핑 또는 internalStaffMemo 내 [OTA] 프리픽스 매칭
         if (condition.otaChannel() != null && !condition.otaChannel().isBlank()) {
-            predicates.add(cb.equal(cb.upper(root.get("otaChannel")), condition.otaChannel().trim().toUpperCase()));
+            String otaUpper = condition.otaChannel().trim().toUpperCase();
+
+            Predicate channelTypeMatch = cb.disjunction();
+            try {
+                BookingChannelInfo.ChannelType enumType = BookingChannelInfo.ChannelType.valueOf(otaUpper);
+                channelTypeMatch = cb.equal(root.get("channelType"), enumType);
+            } catch (IllegalArgumentException ignored) {
+                // BookingChannelInfo.ChannelType에 일치하는 Enum이 없는 경우 무시
+            }
+
+            Predicate memoOtaMatch = cb.like(cb.upper(root.get("internalStaffMemo")), "%[" + otaUpper + "]%");
+            predicates.add(cb.or(channelTypeMatch, memoOtaMatch));
         }
 
-        // 태그 및 고객 요청 원문 DB 검색
+        // 태그 및 고객 요청 원문 검색
         if (condition.tag() != null && !condition.tag().isBlank()) {
             String q = "%" + condition.tag().trim().toUpperCase() + "%";
             Predicate prefTagMatch = cb.like(cb.upper(root.get("preferredTagsCsv")), q);
@@ -155,7 +169,7 @@ public class JpaReservationRepository implements ReservationRepository {
                 .map(ReservationEntity::toDomain)
                 .toList();
 
-        // stayingDate(체류일자) 반개구간 계산 필터링
+        // stayingDate(체류일자) 반개구간 [checkIn, checkOut) 계산 필터링
         if (condition.stayingDate() != null) {
             LocalDate target = condition.stayingDate();
             results = results.stream().filter(r -> {

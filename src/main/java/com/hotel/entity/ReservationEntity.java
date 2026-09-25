@@ -14,7 +14,8 @@ import java.util.stream.Collectors;
         indexes = {
                 @Index(name = "idx_rsv_checkin", columnList = "operational_check_in_date"),
                 @Index(name = "idx_rsv_status", columnList = "status"),
-                @Index(name = "idx_rsv_room", columnList = "assigned_room_number")
+                @Index(name = "idx_rsv_room", columnList = "assigned_room_number"),
+                @Index(name = "idx_rsv_channel", columnList = "channel_type")
         }
 )
 public class ReservationEntity {
@@ -231,7 +232,7 @@ public class ReservationEntity {
             domain.changeRoom(this.assignedRoomNumber);
         }
 
-        // 상태 강제 보정 리플렉션 방지 전이
+        // 상태 강제 보정 전이
         if (this.status == ReservationStatus.CHECKED_IN) {
             domain.checkIn();
         } else if (this.status == ReservationStatus.CHECKED_OUT) {
@@ -258,8 +259,21 @@ public class ReservationEntity {
 
     // Getters
     public String getReservationId() { return reservationId; }
+    public String getOriginalGuestName() { return originalGuestName; }
+    public RoomType getBookedRoomType() { return bookedRoomType; }
+    public LocalDate getContractCheckInDate() { return contractCheckInDate; }
+    public int getContractStayNights() { return contractStayNights; }
+    public String getRawRequestText() { return rawRequestText; }
+    public String getRawXmlPayload() { return rawXmlPayload; }
     public String getOperationalGuestName() { return operationalGuestName; }
     public LocalDate getOperationalCheckInDate() { return operationalCheckInDate; }
-    public ReservationStatus getStatus() { return status; }
+    public int getOperationalStayNights() { return operationalStayNights; }
+    public String getInternalStaffMemo() { return internalStaffMemo; }
     public String getAssignedRoomNumber() { return assignedRoomNumber; }
+    public String getPreviousRoomNumber() { return previousRoomNumber; }
+    public LocalDate getActualCheckOutDate() { return actualCheckOutDate; }
+    public ReservationStatus getStatus() { return status; }
+    public BookingChannelInfo.ChannelType getChannelType() { return channelType; }
+    public String getChannelReservationNo() { return channelReservationNo; }
+    public String getPlanName() { return planName; }
 }
