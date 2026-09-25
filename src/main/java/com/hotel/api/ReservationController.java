@@ -7,6 +7,7 @@ import com.hotel.domain.Reservation;
 import com.hotel.service.BatchAssignmentResult;
 import com.hotel.service.NightAuditService;
 import com.hotel.service.ReservationService;
+import com.hotel.service.TestDataGeneratorService;
 import com.hotel.service.dto.NightAuditResult;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
@@ -27,12 +28,14 @@ public class ReservationController {
 
     private final ReservationService reservationService;
     private final NightAuditService nightAuditService;
+    private final TestDataGeneratorService testDataGeneratorService;
 
-    // 단일 생성자로 정의하여 final 필드 초기화 누락 방지 및 스프링 자동 주입 보장
     public ReservationController(ReservationService reservationService,
-                                 NightAuditService nightAuditService) {
+                                 NightAuditService nightAuditService,
+                                 TestDataGeneratorService testDataGeneratorService) {
         this.reservationService = reservationService;
         this.nightAuditService = nightAuditService;
+        this.testDataGeneratorService = testDataGeneratorService;
     }
 
     public record TagOverrideApiRequest(
@@ -55,30 +58,29 @@ public class ReservationController {
         }
     }
 
-    /**
-     * 예약 목록 다조건 검색
-     * - @RequestParam(value = "tag", required = false)를 명시적으로 받아
-     *   Spring Record 바인딩 누락을 원천 방어하고 condition에 확실하게 주입합니다.
-     */
     @GetMapping
     public ResponseEntity<ApiResponse<List<Reservation>>> searchReservations(
             @ModelAttribute ReservationSearchCondition condition,
-            @RequestParam(value = "tag", required = false) String tag) {
+            @RequestParam(value = "tag", required = false) String tag,
+            @RequestParam(value = "otaChannel", required = false) String otaChannel) {
 
         ReservationSearchCondition finalCondition = condition;
 
-        // 쿼리스트링 ?tag=... 가 넘어왔는데 condition.tag()에 바인딩되지 않은 경우 보정 주입
-        if (tag != null && !tag.isBlank() && (condition == null || condition.tag() == null || condition.tag().isBlank())) {
+        String effectiveTag = (tag != null && !tag.isBlank()) ? tag.trim() : (condition != null ? condition.tag() : null);
+        String effectiveOta = (otaChannel != null && !otaChannel.isBlank()) ? otaChannel.trim() : (condition != null ? condition.otaChannel() : null);
+
+        if (condition != null && (effectiveTag != null || effectiveOta != null)) {
             finalCondition = new ReservationSearchCondition(
-                    condition != null ? condition.reservationId() : null,
-                    condition != null ? condition.guestName() : null,
-                    condition != null ? condition.checkInDate() : null,
-                    condition != null ? condition.stayingDate() : null,
-                    condition != null ? condition.stayNights() : null,
-                    condition != null ? condition.roomType() : null,
-                    condition != null ? condition.status() : null,
-                    condition != null ? condition.assignedRoomNumber() : null,
-                    tag.trim()
+                    condition.reservationId(),
+                    condition.guestName(),
+                    condition.checkInDate(),
+                    condition.stayingDate(),
+                    condition.stayNights(),
+                    condition.roomType(),
+                    condition.status(),
+                    condition.assignedRoomNumber(),
+                    effectiveTag,
+                    effectiveOta
             );
         }
 
@@ -86,9 +88,6 @@ public class ReservationController {
         return ResponseEntity.ok(ApiResponse.ok(reservations));
     }
 
-    /**
-     * 특정 체크인 일자의 미배정 예약 일괄 객실 배정
-     */
     @PostMapping("/batch-assign")
     public ResponseEntity<ApiResponse<BatchAssignmentResult>> batchAssign(
             @Valid @RequestBody BatchAssignApiRequest request) {
@@ -96,9 +95,6 @@ public class ReservationController {
         return ResponseEntity.ok(ApiResponse.ok("일괄 배정이 완료되었습니다.", result));
     }
 
-    /**
-     * 단일 예약 상세 조회
-     */
     @GetMapping("/{reservationId}")
     public ResponseEntity<ApiResponse<Reservation>> getReservation(
             @PathVariable String reservationId) {
@@ -108,9 +104,6 @@ public class ReservationController {
                         .body(ApiResponse.fail("해당 예약을 찾을 수 없습니다: " + reservationId)));
     }
 
-    /**
-     * [PMS 수동 배정] 입실 전 객실 수동 지정 및 재배정 (3자리/4자리 호실 번호 정규화 적용)
-     */
     @PostMapping("/{reservationId}/manual-assign")
     public ResponseEntity<ApiResponse<Void>> manualAssign(
             @PathVariable String reservationId,
@@ -130,9 +123,6 @@ public class ReservationController {
         }
     }
 
-    /**
-     * [PMS 배정 취소] 방 빼기 (스케줄 회수 및 PENDING 상태 환원)
-     */
     @DeleteMapping("/{reservationId}/assign")
     public ResponseEntity<ApiResponse<Void>> unassignRoom(@PathVariable String reservationId) {
         try {
@@ -145,9 +135,6 @@ public class ReservationController {
         }
     }
 
-    /**
-     * [PMS 운영 오버라이드] 원본 계약은 보존하고 현장 운영 상태(이름, 일정, 메모) 수정
-     */
     @PatchMapping("/{reservationId}/operational-override")
     public ResponseEntity<ApiResponse<Void>> updateOperationalOverride(
             @PathVariable String reservationId,
@@ -181,9 +168,6 @@ public class ReservationController {
         }
     }
 
-    /**
-     * 체크인 실행
-     */
     @PostMapping("/{reservationId}/check-in")
     public ResponseEntity<ApiResponse<Void>> checkIn(
             @PathVariable String reservationId) {
@@ -197,9 +181,6 @@ public class ReservationController {
         }
     }
 
-    /**
-     * 룸 체인지 실행 (3자리/4자리 호실 번호 정규화 적용)
-     */
     @PostMapping("/{reservationId}/room-change")
     public ResponseEntity<ApiResponse<RoomChangeResult>> roomChange(
             @PathVariable String reservationId,
@@ -227,9 +208,6 @@ public class ReservationController {
         }
     }
 
-    /**
-     * 체크아웃 실행
-     */
     @PostMapping("/{reservationId}/check-out")
     public ResponseEntity<ApiResponse<Void>> checkOut(
             @PathVariable String reservationId,
@@ -245,16 +223,23 @@ public class ReservationController {
         }
     }
 
-    /**
-     * [나이트 오딧 실행] 자정 마감 정산 및 노쇼 일괄 정리
-     * POST /api/reservations/night-audit?targetDate=2026-09-20
-     */
     @PostMapping("/night-audit")
     public ResponseEntity<ApiResponse<NightAuditResult>> runNightAudit(
             @RequestParam(required = false) LocalDate targetDate) {
         LocalDate effectiveDate = (targetDate != null) ? targetDate : LocalDate.now();
         NightAuditResult result = nightAuditService.runNightAudit(effectiveDate);
         return ResponseEntity.ok(ApiResponse.ok(result.message(), result));
+    }
+
+    @PostMapping("/generate-test-data")
+    public ResponseEntity<ApiResponse<String>> generateTestData(
+            @RequestParam(required = false) LocalDate baseDate) {
+        LocalDate target = (baseDate != null) ? baseDate : LocalDate.now();
+        testDataGeneratorService.generate50DynamicReservations(target);
+        return ResponseEntity.ok(ApiResponse.ok(
+                String.format("%s 기준 50건의 고유 실명 및 OTA 예약이 생성되고 배정되었습니다.", target),
+                null
+        ));
     }
 
     private String normalizeRoomNumber(String input) {

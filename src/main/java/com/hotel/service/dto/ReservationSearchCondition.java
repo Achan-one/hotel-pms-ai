@@ -5,10 +5,6 @@ import com.hotel.domain.RoomType;
 
 import java.time.LocalDate;
 
-/**
- * 프론트 데스크 다조건 복합 검색 DTO (Java Record)
- * - Spring @ModelAttribute 바인딩 충돌을 방지하기 위해 단일 Canonical 생성자만 유지합니다.
- */
 public record ReservationSearchCondition(
         String reservationId,        // 예약 번호 (일치 또는 포함)
         String guestName,            // 투숙객 이름 (대소문자 무시 부분 일치)
@@ -18,35 +14,36 @@ public record ReservationSearchCondition(
         RoomType roomType,           // 예약 객실 타입
         ReservationStatus status,    // 예약 상태
         String assignedRoomNumber,   // 배정된 방 번호
-        String tag                   // 🏷️ 태그 검색 (선호/기피 태그 코드 또는 원문 키워드)
+        String tag,                  // 🏷️ 태그 검색 (선호/기피 태그 코드 또는 원문 키워드)
+        String otaChannel            // 🌐 OTA 채널 검색 (AGODA, BOOKING_COM, EXPEDIA 등)
 ) {
-    // 8개 인자 레거시 호환 팩토리 메서드
-    public static ReservationSearchCondition of(String reservationId, String guestName, LocalDate checkInDate,
-                                                LocalDate stayingDate, Integer stayNights, RoomType roomType,
-                                                ReservationStatus status, String assignedRoomNumber) {
-        return new ReservationSearchCondition(reservationId, guestName, checkInDate, stayingDate, stayNights, roomType, status, assignedRoomNumber, null);
+    // 빈 검색 조건 팩토리 메서드 (전수 검색 시 사용)
+    public static ReservationSearchCondition empty() {
+        return new ReservationSearchCondition(null, null, null, null, null, null, null, null, null, null);
     }
 
-    // 7개 인자 레거시 호환 팩토리 메서드
-    public static ReservationSearchCondition of(String reservationId, String guestName, LocalDate checkInDate,
-                                                Integer stayNights, RoomType roomType,
-                                                ReservationStatus status, String assignedRoomNumber) {
-        return new ReservationSearchCondition(reservationId, guestName, checkInDate, null, stayNights, roomType, status, assignedRoomNumber, null);
-    }
-
-    public static ReservationSearchCondition byGuestName(String guestName) {
-        return new ReservationSearchCondition(null, guestName, null, null, null, null, null, null, null);
-    }
-
-    public static ReservationSearchCondition byCheckInDate(LocalDate checkInDate) {
-        return new ReservationSearchCondition(null, null, checkInDate, null, null, null, null, null, null);
-    }
-
+    // 체류일자 기준 팩토리 메서드
     public static ReservationSearchCondition byStayingDate(LocalDate stayingDate) {
-        return new ReservationSearchCondition(null, null, null, stayingDate, null, null, null, null, null);
+        return new ReservationSearchCondition(null, null, null, stayingDate, null, null, null, null, null, null);
     }
 
+    // 체크인 일자 기준 팩토리 메서드
+    public static ReservationSearchCondition byCheckInDate(LocalDate checkInDate) {
+        return new ReservationSearchCondition(null, null, checkInDate, null, null, null, null, null, null, null);
+    }
+
+    // 고객명 기준 팩토리 메서드
+    public static ReservationSearchCondition byGuestName(String guestName) {
+        return new ReservationSearchCondition(null, guestName, null, null, null, null, null, null, null, null);
+    }
+
+    // 태그 기준 팩토리 메서드
     public static ReservationSearchCondition byTag(String tag) {
-        return new ReservationSearchCondition(null, null, null, null, null, null, null, null, tag);
+        return new ReservationSearchCondition(null, null, null, null, null, null, null, null, tag, null);
+    }
+
+    // OTA 채널 기준 팩토리 메서드
+    public static ReservationSearchCondition byOtaChannel(String otaChannel) {
+        return new ReservationSearchCondition(null, null, null, null, null, null, null, null, null, otaChannel);
     }
 }
