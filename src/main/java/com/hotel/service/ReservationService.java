@@ -1,7 +1,13 @@
 package com.hotel.service;
 
 import com.hotel.channel.dto.ChannelReservationRequest;
-import com.hotel.domain.*;
+import com.hotel.domain.QuotaPolicy;
+import com.hotel.domain.Reservation;
+import com.hotel.domain.ReservationStatus;
+import com.hotel.domain.Room;
+import com.hotel.domain.RoomStatus;
+import com.hotel.domain.StayPeriod;
+import com.hotel.domain.TagPreference;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
@@ -10,33 +16,32 @@ import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 import com.hotel.service.validator.ReservationValidator;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.*;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
+@Service
+@Transactional
 public class ReservationService {
 
     private final ReservationRepository reservationRepository;
-    private final ReservationValidator validator;
+    private final RoomRepository roomRepository;
     private final AiPreferenceParser aiParser;
     private final BatchAssigner batchAssigner;
-    private final RoomChangeService roomChangeService;
-    private final RoomRepository roomRepository;
     private final QuotaPolicy quotaPolicy;
+    private final ReservationValidator validator;
 
-    public ReservationService(ReservationRepository reservationRepository,
-                              RoomRepository roomRepository,
-                              AiPreferenceParser aiParser) {
-        this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), new QuotaPolicy());
-    }
-
-    public ReservationService(ReservationRepository reservationRepository,
-                              RoomRepository roomRepository,
-                              AiPreferenceParser aiParser,
-                              QuotaPolicy quotaPolicy) {
-        this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), quotaPolicy);
-    }
-
+    @Autowired
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser,
@@ -48,7 +53,13 @@ public class ReservationService {
         this.validator = new ReservationValidator();
         this.aiParser = (aiParser != null) ? aiParser : new AiPreferenceParser();
         this.batchAssigner = new BatchAssigner(roomRepository, tagRepository, this.quotaPolicy);
-        this.roomChangeService = new RoomChangeService(roomRepository);
+    }
+
+    // 단위 테스트 편의용 3개 인자 오버로딩 생성자
+    public ReservationService(ReservationRepository reservationRepository,
+                              RoomRepository roomRepository,
+                              AiPreferenceParser aiParser) {
+        this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), new QuotaPolicy());
     }
 
     public List<Reservation> receiveReservations(List<Reservation> rawReservations) {
@@ -99,12 +110,23 @@ public class ReservationService {
 
         for (Reservation success : result.getSuccessfulAssignments()) {
             try {
+                String roomNumber = success.getAssignedRoomNumber();
+                if (roomNumber != null) {
+                    roomRepository.findByRoomNumberForUpdate(roomNumber).ifPresent(room -> {
+                        StayPeriod period = new StayPeriod(success.getCheckInDate(), success.getStayNights());
+                        room.tryBookPeriod(period);
+                        roomRepository.save(room);
+                    });
+                }
                 reservationRepository.save(success);
             } catch (Exception e) {
                 String roomNumber = success.getAssignedRoomNumber();
                 StayPeriod period = new StayPeriod(success.getCheckInDate(), success.getStayNights());
                 if (roomNumber != null) {
-                    roomRepository.findByRoomNumber(roomNumber).ifPresent(r -> r.cancelPeriod(period));
+                    roomRepository.findByRoomNumber(roomNumber).ifPresent(r -> {
+                        r.cancelPeriod(period);
+                        roomRepository.save(r);
+                    });
                 }
                 success.cancelAssignment();
             }
@@ -122,7 +144,10 @@ public class ReservationService {
 
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> room.setStatus(RoomStatus.OCCUPIED));
+            roomRepository.findByRoomNumberForUpdate(roomNumber).ifPresent(room -> {
+                room.setStatus(RoomStatus.OCCUPIED);
+                roomRepository.save(room);
+            });
         }
 
         reservationRepository.save(reservation);
@@ -131,30 +156,78 @@ public class ReservationService {
     public RoomChangeResult processRoomChange(RoomChangeRequest request) {
         Objects.requireNonNull(request, "RoomChangeRequest 요청은 필수입니다.");
         Reservation reservation = findReservationOrThrow(request.reservationId());
-        RoomChangeResult result = roomChangeService.changeRoom(reservation, request);
-        if (result.success()) {
-            reservationRepository.save(reservation);
+
+        if (!reservation.getStatus().isInHouse()) {
+            return RoomChangeResult.failure(reservation.getReservationId(),
+                    "투숙 중인 고객만 룸 체인지가 가능합니다. (현재 상태: " + reservation.getStatus() + ")");
         }
-        return result;
+
+        String targetRoomNumber = request.targetRoomNumber().trim();
+        String originRoomNumber = reservation.getAssignedRoomNumber();
+
+        if (targetRoomNumber.equals(originRoomNumber)) {
+            return RoomChangeResult.failure(reservation.getReservationId(), "현재 배정된 객실과 동일한 객실로 이동할 수 없습니다.");
+        }
+
+        Room targetRoom = roomRepository.findByRoomNumberForUpdate(targetRoomNumber).orElse(null);
+        if (targetRoom == null) {
+            return RoomChangeResult.failure(reservation.getReservationId(), "해당 객실(" + targetRoomNumber + ")이 도면에 존재하지 않습니다.");
+        }
+
+        if (!targetRoom.getStatus().isAssignable()) {
+            return RoomChangeResult.failure(reservation.getReservationId(),
+                    "이동 대상 객실(" + targetRoomNumber + "호)은 입실 가능한 공실(VACANT)이 아닙니다. (현재 상태: "
+                            + targetRoom.getStatus().getTitle() + ")");
+        }
+
+        LocalDate moveDate = request.moveDate();
+        LocalDate checkInDate = reservation.getCheckInDate();
+        LocalDate checkOutDate = reservation.getCheckOutDate();
+
+        if (moveDate.isBefore(checkInDate) || !moveDate.isBefore(checkOutDate)) {
+            return RoomChangeResult.failure(reservation.getReservationId(), "유효하지 않은 이동 일자 범위입니다.");
+        }
+
+        int remainingNights = (int) ChronoUnit.DAYS.between(moveDate, checkOutDate);
+        StayPeriod remainingPeriod = new StayPeriod(moveDate, remainingNights);
+        StayPeriod originalPeriod = new StayPeriod(checkInDate, reservation.getStayNights());
+
+        if (!targetRoom.tryBookPeriod(remainingPeriod)) {
+            return RoomChangeResult.failure(reservation.getReservationId(),
+                    String.format("대상 객실(%s호)은 해당 잔여 기간(%s)에 이미 다른 예약이 점유하여 배정할 수 없습니다.",
+                            targetRoomNumber, remainingPeriod));
+        }
+
+        if (originRoomNumber != null) {
+            roomRepository.findByRoomNumberForUpdate(originRoomNumber.trim()).ifPresent(originRoom -> {
+                originRoom.truncatePeriodFrom(originalPeriod, moveDate);
+                originRoom.setStatus(RoomStatus.OUT);
+                roomRepository.save(originRoom);
+            });
+        }
+
+        targetRoom.setStatus(RoomStatus.OCCUPIED);
+        reservation.changeRoom(targetRoom.getRoomNumber());
+
+        roomRepository.save(targetRoom);
+        reservationRepository.save(reservation);
+
+        return RoomChangeResult.success(
+                reservation.getReservationId(),
+                originRoomNumber,
+                targetRoom.getRoomNumber(),
+                moveDate,
+                remainingNights
+        );
     }
 
-    public RoomChangeResult processRoomChange(String reservationId, String targetRoomNumber) {
-        Reservation reservation = findReservationOrThrow(reservationId);
-        LocalDate moveDate = reservation.getCheckInDate() != null ? reservation.getCheckInDate() : LocalDate.now();
-        RoomChangeRequest request = new RoomChangeRequest(reservationId, targetRoomNumber, moveDate, "현장 프론트 요청");
-        return processRoomChange(request);
-    }
-
-    /**
-     * [PMS 수동 배정] 입실 전 고객 호실 수동 지정/재배정
-     */
     public void manualAssignRoom(String reservationId, String targetRoomNumber) {
         Reservation reservation = findReservationOrThrow(reservationId);
         if (reservation.getStatus().isInHouse() || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
             throw new IllegalStateException("이미 입실하거나 퇴실한 고객은 일반 배정이 아닌 [룸 체인지]를 사용해야 합니다.");
         }
 
-        Room targetRoom = roomRepository.findByRoomNumber(targetRoomNumber)
+        Room targetRoom = roomRepository.findByRoomNumberForUpdate(targetRoomNumber)
                 .orElseThrow(() -> new IllegalArgumentException("해당 호실(" + targetRoomNumber + ")이 도면에 존재하지 않습니다."));
 
         StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
@@ -165,17 +238,19 @@ public class ReservationService {
 
         if (reservation.isAssigned() && reservation.getAssignedRoomNumber() != null) {
             String prevRoom = reservation.getAssignedRoomNumber();
-            roomRepository.findByRoomNumber(prevRoom).ifPresent(r -> r.cancelPeriod(targetPeriod));
+            roomRepository.findByRoomNumberForUpdate(prevRoom).ifPresent(r -> {
+                r.cancelPeriod(targetPeriod);
+                roomRepository.save(r);
+            });
         }
 
         targetRoom.bookPeriod(targetPeriod);
         reservation.assignRoom(targetRoomNumber);
+
+        roomRepository.save(targetRoom);
         reservationRepository.save(reservation);
     }
 
-    /**
-     * [PMS 운영 오버라이드] 원본 계약은 보존하고 프론트 데스크 운영 정보만 갱신
-     */
     public void updateOperationalDetails(String reservationId,
                                          String operationalName,
                                          LocalDate operationalCheckIn,
@@ -188,7 +263,7 @@ public class ReservationService {
 
             if (reservation.isAssigned()) {
                 String roomNumber = reservation.getAssignedRoomNumber();
-                Room room = roomRepository.findByRoomNumber(roomNumber).orElseThrow();
+                Room room = roomRepository.findByRoomNumberForUpdate(roomNumber).orElseThrow();
 
                 StayPeriod oldPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
                 room.cancelPeriod(oldPeriod);
@@ -202,6 +277,7 @@ public class ReservationService {
                     throw new IllegalStateException("해당 객실(" + roomNumber + "호)은 변경하려는 일정에 이미 예약이 존재합니다.");
                 }
                 room.bookPeriod(newPeriod);
+                roomRepository.save(room);
             }
         }
 
@@ -222,19 +298,22 @@ public class ReservationService {
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
             StayPeriod targetPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
+            roomRepository.findByRoomNumberForUpdate(roomNumber).ifPresent(room -> {
                 room.truncatePeriodFrom(targetPeriod, effectiveDate);
                 room.setStatus(RoomStatus.OUT);
+                roomRepository.save(room);
             });
         }
 
         reservationRepository.save(reservation);
     }
 
+    @Transactional(readOnly = true)
     public List<Reservation> searchReservations(ReservationSearchCondition condition) {
         return reservationRepository.search(condition);
     }
 
+    @Transactional(readOnly = true)
     public Optional<Reservation> getReservation(String reservationId) {
         return reservationRepository.findById(reservationId);
     }
@@ -245,16 +324,8 @@ public class ReservationService {
         if (reservation.getStatus().isInHouse() || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
             throw new IllegalStateException("이미 입실하거나 퇴실한 고객의 객실 배정은 직접 취소할 수 없습니다.");
         }
-        String roomNumber = reservation.getAssignedRoomNumber();
-        StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
-        if (roomNumber != null) {
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                room.cancelPeriod(stayPeriod);
-                if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
-                    room.setStatus(RoomStatus.VACANT);
-                }
-            });
-        }
+
+        releaseRoomSchedule(reservation);
         reservation.cancelAssignment();
         reservationRepository.save(reservation);
     }
@@ -264,22 +335,35 @@ public class ReservationService {
         if (reservation.getStatus().isInHouse() || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
             throw new IllegalStateException("투숙 중이거나 이미 퇴실 완료된 예약은 취소할 수 없습니다.");
         }
-        String roomNumber = reservation.getAssignedRoomNumber();
-        if (roomNumber != null) {
-            StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
-            roomRepository.findByRoomNumber(roomNumber).ifPresent(room -> {
-                room.cancelPeriod(stayPeriod);
-                if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
-                    room.setStatus(RoomStatus.VACANT);
-                }
-            });
-        }
+
+        releaseRoomSchedule(reservation);
         reservation.cancelReservation();
+        reservationRepository.save(reservation);
+    }
+
+    public void updateOperationalTags(String reservationId, Set<String> preferredTags, Set<String> avoidTags) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+        TagPreference updatedPref = new TagPreference(preferredTags, avoidTags);
+        reservation.updateOperationalTags(updatedPref);
         reservationRepository.save(reservation);
     }
 
     public QuotaPolicy getQuotaPolicy() {
         return quotaPolicy;
+    }
+
+    private void releaseRoomSchedule(Reservation reservation) {
+        String roomNumber = reservation.getAssignedRoomNumber();
+        if (roomNumber != null) {
+            StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+            roomRepository.findByRoomNumberForUpdate(roomNumber).ifPresent(room -> {
+                room.cancelPeriod(stayPeriod);
+                if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
+                    room.setStatus(RoomStatus.VACANT);
+                }
+                roomRepository.save(room);
+            });
+        }
     }
 
     private Reservation findReservationOrThrow(String reservationId) {
@@ -288,11 +372,5 @@ public class ReservationService {
         }
         return reservationRepository.findById(reservationId.trim())
                 .orElseThrow(() -> new NoSuchElementException("예약 원장에서 해당 예약을 찾을 수 없습니다: " + reservationId));
-    }
-    public void updateOperationalTags(String reservationId, Set<String> preferredTags, Set<String> avoidTags) {
-        Reservation reservation = findReservationOrThrow(reservationId);
-        TagPreference updatedPref = new TagPreference(preferredTags, avoidTags);
-        reservation.updateOperationalTags(updatedPref);
-        reservationRepository.save(reservation);
     }
 }

@@ -10,7 +10,10 @@ import com.hotel.repository.jpa.SpringDataScheduleRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 @Repository
 public class JpaRoomRepository implements RoomRepository {
@@ -71,6 +74,16 @@ public class JpaRoomRepository implements RoomRepository {
         if (roomNumber == null || roomNumber.isBlank()) return Optional.empty();
 
         return roomJpaRepo.findById(roomNumber.trim()).map(entity -> {
+            List<RoomScheduleEntity> schedules = scheduleJpaRepo.findByRoomNumber(entity.getRoomNumber());
+            return toDomain(entity, schedules);
+        });
+    }
+    @Override
+    @Transactional
+    public Optional<Room> findByRoomNumberForUpdate(String roomNumber) {
+        if (roomNumber == null || roomNumber.isBlank()) return Optional.empty();
+
+        return roomJpaRepo.findByRoomNumberForUpdate(roomNumber.trim()).map(entity -> {
             List<RoomScheduleEntity> schedules = scheduleJpaRepo.findByRoomNumber(entity.getRoomNumber());
             return toDomain(entity, schedules);
         });
