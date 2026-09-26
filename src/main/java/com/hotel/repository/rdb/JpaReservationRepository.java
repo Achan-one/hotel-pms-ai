@@ -202,4 +202,7 @@ public class JpaReservationRepository implements ReservationRepository {
     public void clear() {
         jpaRepo.deleteAll();
     }
+
+    public static class JpaCityLedgerRepository {
+    }
 }

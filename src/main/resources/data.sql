@@ -247,3 +247,15 @@ MERGE INTO rooms (room_number, floor, room_type, near_elevator, corner_room, sta
     ('1514', 15, 'SUPERIOR_TWIN', false, true, 'VACANT'),
     ('1515', 15, 'MODERATE_DOUBLE', false, false, 'VACANT'),
     ('1516', 15, 'MODERATE_DOUBLE', false, true, 'VACANT');
+
+-- =========================================================================
+-- 3. 표준 계정과목(Charge Codes) 카탈로그 시드 적재
+-- =========================================================================
+MERGE INTO folio_charge_codes (code, name, default_amount, is_system_default)
+    KEY(code) VALUES
+    ('ROOM_CHARGE', '룸 차지', 0, true),
+    ('EXTRA_BED', '엑스트라 베드', 3000, true),
+    ('MINIBAR', '미니바', 1000, true),
+    ('ROOM_CHANGE', '룸 체인지 추가금', 0, true),
+    ('EARLY_CHECKIN', '얼리 체크인', 2000, true),
+    ('LATE_CHECKOUT', '레이트 체크아웃', 2000, true);

@@ -4,9 +4,11 @@ import com.hotel.channel.ChannelSyncService;
 import com.hotel.channel.onda.OndaChannelAdapter;
 import com.hotel.channel.tlx.TlxChannelAdapter;
 import com.hotel.domain.QuotaPolicy;
+import com.hotel.repository.CityLedgerRepository;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
+import com.hotel.repository.rdb.JpaCityLedgerRepository;
 import com.hotel.repository.rdb.JpaReservationRepository;
 import com.hotel.repository.rdb.JpaRoomRepository;
 import com.hotel.repository.rdb.JpaTagRepository;
@@ -36,6 +38,13 @@ public class AppConfig {
     @Primary
     public TagRepository tagRepository(JpaTagRepository jpaTagRepository) {
         return jpaTagRepository;
+    }
+
+    // 🚀 [추가] OTA 후불 정산(City Ledger) 저장소 빈 등록
+    @Bean
+    @Primary
+    public CityLedgerRepository cityLedgerRepository(JpaCityLedgerRepository jpaCityLedgerRepository) {
+        return jpaCityLedgerRepository;
     }
 
     // 2. 운영 정책 및 AI 파서
@@ -68,9 +77,6 @@ public class AppConfig {
     }
 
     // 4. 핵심 서비스 계층
-    // 💡 ReservationService, NightAuditService, HotelOperationService 등은
-    //    클래스 상단의 @Service를 통해 스프링이 의존성을 자동 주입하며 빈으로 관리합니다.
-
     @Bean
     public FloorStatusService floorStatusService(RoomRepository roomRepository) {
         return new FloorStatusService(roomRepository);
