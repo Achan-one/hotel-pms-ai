@@ -1,15 +1,22 @@
 package com.hotel.domain;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 public class FolioTransaction {
-    private final String transactionId;
-    private final LocalDateTime timestamp;
-    private final TransactionType type; // CHARGE(+), PAYMENT(-)
-    private final String category;      // ROOM_RATE, MINIBAR, CASH, CREDIT_CARD 등
-    private final String description;   // 비고 / 메모
-    private final long amount;          // 금액 (양수)
+    private String transactionId;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime timestamp;
+
+    private TransactionType type; // CHARGE(+), PAYMENT(-)
+    private String category;      // ROOM_CHARGE, MINIBAR, CASH, CREDIT_CARD 등
+    private String description;   // 메모
+    private long amount;          // 금액
+
+    // 🚀 Jackson 역직렬화에 필수적인 기본 생성자
+    protected FolioTransaction() {}
 
     public FolioTransaction(TransactionType type, String category, String description, long amount) {
         this.transactionId = "TX-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
@@ -17,7 +24,7 @@ public class FolioTransaction {
         this.type = type;
         this.category = category;
         this.description = description;
-        this.amount = Math.max(0, amount);
+        this.amount = amount;
     }
 
     public enum TransactionType {
