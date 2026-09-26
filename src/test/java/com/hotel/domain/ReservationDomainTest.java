@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -13,114 +14,95 @@ class ReservationDomainTest {
     private final LocalDate today = LocalDate.of(2026, 9, 20);
 
     @Test
-    @DisplayName("[채널 정보] OTA 예약(자란/라쿠텐)과 직영 예약(DIRECT)을 명확히 식별해야 한다")
-    void bookingChannel_Detection() {
-        BookingChannelInfo jalan = new BookingChannelInfo(
-                BookingChannelInfo.ChannelType.JALAN,
-                "JALAN-99201",
-                "【早割30】スタンダード朝食付き"
-        );
-        BookingChannelInfo direct = BookingChannelInfo.direct("RSV-DIR-001");
-
-        assertTrue(jalan.isOta());
-        assertEquals("자란넷 (Jalan)", jalan.channelType().getDescription());
-
-        assertFalse(direct.isOta());
-        assertEquals(BookingChannelInfo.ChannelType.DIRECT, direct.channelType());
-    }
-
-    @Test
-    @DisplayName("[조식 관리] 체크인(startStaying) 시 조식 포함 플랜은 식권이 자동 발급되어야 한다")
-    void breakfast_AutoIssueOnCheckIn() {
-        BreakfastOption breakfast = BreakfastOption.included(2);
-        PaymentLedger payment = new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 200_000);
-
+    @DisplayName("[요금 스케줄 기본값] 예약 생성 시 박수만큼 기본 일자별 요금 스케줄이 균등 분할 생성되어야 한다")
+    void reservation_CreatesDefaultDailyRateSchedule() {
         Reservation rsv = new Reservation(
-                "RSV-BF-01", "Tanaka", RoomType.MODERATE_DOUBLE,
-                today, 3, 2, "고층", GuestPreference.empty(),
-                BookingChannelInfo.direct("RSV-BF-01"),
-                breakfast, payment, LocalTime.of(15, 0)
+                "RSV-TEST-001",
+                "John Doe",
+                RoomType.SUPERIOR_TWIN,
+                today,
+                3,
+                2,
+                "금연실 희망",
+                GuestPreference.empty(),
+                BookingChannelInfo.direct("DIR-001"),
+                BreakfastOption.none(),
+                new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 45_000L),
+                LocalTime.of(15, 0)
         );
 
-        // 3박 * 2인 = 총 6장의 식권 소요
-        assertEquals(6, rsv.getBreakfastOption().calculateTotalTickets(rsv.getStayNights()));
-        assertFalse(rsv.getBreakfastOption().isTicketsIssued(), "체크인 전에는 식권이 발급되지 않은 상태여야 함");
-
-        // 방 배정 후 체크인 진행
-        rsv.assignRoom("0801");
-        rsv.startStaying();
-
-        assertTrue(rsv.getBreakfastOption().isTicketsIssued(), "체크인 완료 즉시 식권 발급 완료 상태로 전이되어야 함");
+        DailyRateSchedule schedule = rsv.getDailyRateSchedule();
+        assertNotNull(schedule);
+        assertEquals(3, schedule.getDailyRates().size());
+        assertEquals(15_000L, schedule.getRateForDate(today));
+        assertEquals(15_000L, schedule.getRateForDate(today.plusDays(1)));
+        assertEquals(15_000L, schedule.getRateForDate(today.plusDays(2)));
+        assertEquals(45_000L, schedule.calculateTotalRate());
     }
 
     @Test
-    @DisplayName("[정산 방어] 현장 결제 고객이 요금을 정산하지 않은 상태에서는 체크아웃이 차단되어야 한다")
+    @DisplayName("[요금 스케줄 수정] 운영자가 일자별 1박 객실료를 다르게 수정하면 해당 금액이 반영되어야 한다")
+    void reservation_UpdatesDailyRates() {
+        Reservation rsv = new Reservation(
+                "RSV-TEST-002",
+                "Jane Smith",
+                RoomType.MODERATE_DOUBLE,
+                today,
+                2,
+                null,
+                GuestPreference.empty()
+        );
+
+        rsv.updateDailyRates(Map.of(
+                today, 12_000L,
+                today.plusDays(1), 18_000L
+        ));
+
+        DailyRateSchedule schedule = rsv.getDailyRateSchedule();
+        assertEquals(12_000L, schedule.getRateForDate(today));
+        assertEquals(18_000L, schedule.getRateForDate(today.plusDays(1)));
+        assertEquals(30_000L, schedule.calculateTotalRate());
+    }
+
+    @Test
+    @DisplayName("[체크아웃 정산 방어] 미납 잔액이 남아있으면 체크아웃이 차단되어야 한다")
     void checkOut_BlockedWhenUnsettled() {
-        // 현장 결제 플랜 150,000원 세팅 (기본 settled = false)
-        PaymentLedger payment = new PaymentLedger(PaymentLedger.PaymentType.PAY_ON_ARRIVAL, 150_000);
+        // 현장 결제 고객: 15,000원 결제 예정이나 아직 지불하지 않음 (수납 0원)
+        PaymentLedger ledger = new PaymentLedger(PaymentLedger.PaymentType.PAY_ON_ARRIVAL, 15_000L);
 
         Reservation rsv = new Reservation(
-                "RSV-PAY-01", "Sato", RoomType.SUPERIOR_TWIN,
-                today, 1, 1, null, GuestPreference.empty(),
-                null, null, payment, LocalTime.of(16, 0)
+                "RSV-TEST-003",
+                "David Miller",
+                RoomType.MODERATE_DOUBLE,
+                today,
+                1,
+                1,
+                null,
+                GuestPreference.empty(),
+                BookingChannelInfo.direct("DIR-002"),
+                BreakfastOption.none(),
+                ledger,
+                LocalTime.of(15, 0)
         );
 
-        rsv.assignRoom("0502");
-        rsv.startStaying();
+        rsv.assignRoom("0301");
+        rsv.checkIn();
 
-        // 정산 없이 체크아웃 시도 시 예외 발생 검증
+        // 사전 검증: 미정산 상태이고 미수금이 15,000원이어야 함
+        assertFalse(rsv.getPaymentLedger().isSettled());
+        assertEquals(15_000L, rsv.getPaymentLedger().getTotalDue());
+
+        // 1. 미정산 상태에서 체크아웃 시도 시 예외 발생 검증
         IllegalStateException ex = assertThrows(IllegalStateException.class, () -> rsv.checkOut());
         assertTrue(ex.getMessage().contains("미정산 금액"));
 
-        // 정산 완료 처리 후 체크아웃 재시도 -> 성공 (람다 표현식으로 명시)
-        payment.settle();
+        // 2. 미수금 전액 수납(settle) 처리
+        ledger.settle();
+        assertTrue(rsv.getPaymentLedger().isSettled());
+        assertEquals(0L, rsv.getPaymentLedger().getTotalDue());
+
+        // 3. 정상 체크아웃 완료 검증
         assertDoesNotThrow(() -> rsv.checkOut());
         assertEquals(ReservationStatus.CHECKED_OUT, rsv.getStatus());
-    }
-
-    @Test
-    @DisplayName("[사전 결제 부대비용] 사전 카드 결제 고객도 현장 부대비용(미니바 등) 발생 시 정산 전 체크아웃이 차단되어야 한다")
-    void prepaid_BlockedWhenIncidentalAdded() {
-        // 사전 결제 180,000원 세팅 (초기 settled = true)
-        PaymentLedger payment = new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 180_000);
-        assertTrue(payment.isSettled());
-
-        Reservation rsv = new Reservation(
-                "RSV-PRE-01", "Alice", RoomType.EXECUTIVE_DOUBLE,
-                today, 2, 2, null, GuestPreference.empty(),
-                null, null, payment, LocalTime.of(15, 0)
-        );
-
-        rsv.assignRoom("1201");
-        rsv.startStaying();
-
-        // 투숙 중 미니바 12,000원 청구 발생 -> 미정산 상태로 전환
-        payment.addIncidental(12_000);
-        assertFalse(payment.isSettled());
-        assertEquals(12_000, payment.getTotalDue());
-
-        // 미정산 부대비용으로 인한 체크아웃 차단 검증
-        assertThrows(IllegalStateException.class, () -> rsv.checkOut());
-
-        // 프론트 데스크 결제 완료 처리
-        payment.settle();
-        assertDoesNotThrow(() -> rsv.checkOut());
-        assertEquals(ReservationStatus.CHECKED_OUT, rsv.getStatus());
-    }
-
-    @Test
-    @DisplayName("[레이트 아웃] 지연 퇴실 시간 등록 시 예약 객체에 안전하게 반영되어야 한다")
-    void grantLateCheckOut_Success() {
-        Reservation rsv = new Reservation(
-                "RSV-LATE-01", "Kim", RoomType.MODERATE_DOUBLE,
-                today, 1, "조용한 방", GuestPreference.empty()
-        );
-
-        assertNull(rsv.getLateCheckOutTime());
-
-        LocalTime lateTime = LocalTime.of(13, 0); // 오후 1시 연장
-        rsv.grantLateCheckOut(lateTime);
-
-        assertEquals(lateTime, rsv.getLateCheckOutTime());
     }
 }

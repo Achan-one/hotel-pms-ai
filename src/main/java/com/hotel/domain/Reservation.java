@@ -2,16 +2,16 @@ package com.hotel.domain;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Map;
 import java.util.Objects;
 
 public class Reservation {
     // ==========================================
     // 1. [불변] OTA / 채널 매니저 원천 계약 원장 (Audit Trail)
-    //    * 어떤 프론트 조작으로도 절대 변경 불가!
     // ==========================================
     private final String reservationId;
     private final String originalGuestName;       // OTA 인입 시점 원문 고객명
-    private final RoomType bookedRoomType;         // OTA 계약 룸타입 (정산 기준)
+    private final RoomType bookedRoomType;         // OTA 계약 룸타입
     private final LocalDate contractCheckInDate;   // OTA 계약 체크인 일자
     private final int contractStayNights;          // OTA 계약 박수
     private final String rawRequestText;           // OTA 인입 고객 원문 요청사항
@@ -19,13 +19,12 @@ public class Reservation {
 
     // ==========================================
     // 2. [가변] PMS 현장 운영 오버라이드 필드
-    //    * 프론트 현장 수정 및 룸체인지/일정조정 시 여기에만 반영
     // ==========================================
     private String operationalGuestName;           // 현장 수정 투숙객 실명
     private LocalDate operationalCheckInDate;      // 현장 조정 체크인 일자
     private int operationalStayNights;             // 현장 연장/단축 반영 실 숙박 박수
     private String internalStaffMemo;              // 호텔 직원 내부 인계 메모
-    private String assignedRoomNumber;             // 실제 실물 배정 호실 (업그레이드 등)
+    private String assignedRoomNumber;             // 실제 실물 배정 호실
     private String previousRoomNumber;             // 이전 호실 이력
     private LocalDate actualCheckOutDate;          // 실제 퇴실일
     private ReservationStatus status;
@@ -38,6 +37,9 @@ public class Reservation {
     private final PaymentLedger paymentLedger;
     private LocalTime estimatedArrivalTime;
     private LocalTime lateCheckOutTime;
+
+    // 🚀 [신규] 일자별 1박 단가 스케줄 (나이트 오딧 동적 룸차지 포스팅 기준)
+    private DailyRateSchedule dailyRateSchedule;
 
     // 14개 인자 마스터 생성자
     public Reservation(String reservationId,
@@ -63,7 +65,6 @@ public class Reservation {
         this.rawRequestText = rawRequestText;
         this.rawXmlPayload = rawXmlPayload;
 
-        // 초기 운영값은 계약 원천값으로 초기화
         this.operationalGuestName = this.originalGuestName;
         this.operationalCheckInDate = this.contractCheckInDate;
         this.operationalStayNights = this.contractStayNights;
@@ -80,51 +81,40 @@ public class Reservation {
         this.previousRoomNumber = null;
         this.actualCheckOutDate = null;
         this.status = ReservationStatus.PENDING;
+
+        // 🚀 일자별 기본 요금 스케줄 초기화
+        long defaultRate = this.paymentLedger.getTotalCharges() > 0
+                ? (this.paymentLedger.getTotalCharges() / this.contractStayNights)
+                : 15_000L;
+        if (defaultRate <= 0) defaultRate = 15_000L;
+        this.dailyRateSchedule = DailyRateSchedule.createDefault(this.operationalCheckInDate, this.operationalStayNights, defaultRate);
     }
 
-    // [13개 인자 호환 생성자 - ReportExportServiceTest 등 기존 도메인 테스트 호환용]
-    public Reservation(String reservationId,
-                       String guestName,
-                       RoomType bookedRoomType,
-                       LocalDate checkInDate,
-                       int stayNights,
-                       int guestCount,
-                       String rawRequestText,
-                       GuestPreference preference,
-                       TagPreference tagPreference,
-                       BookingChannelInfo channelInfo,
-                       BreakfastOption breakfastOption,
-                       PaymentLedger paymentLedger,
+    public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
+                       LocalDate checkInDate, int stayNights, int guestCount,
+                       String rawRequestText, GuestPreference preference,
+                       TagPreference tagPreference, BookingChannelInfo channelInfo,
+                       BreakfastOption breakfastOption, PaymentLedger paymentLedger,
                        LocalTime estimatedArrivalTime) {
         this(reservationId, guestName, bookedRoomType, checkInDate, stayNights, guestCount,
                 rawRequestText, null, preference, tagPreference, channelInfo, breakfastOption, paymentLedger, estimatedArrivalTime);
     }
 
-    // [12개 인자 호환 생성자 - ReservationDomainTest 등]
-    public Reservation(String reservationId,
-                       String guestName,
-                       RoomType bookedRoomType,
-                       LocalDate checkInDate,
-                       int stayNights,
-                       int guestCount,
-                       String rawRequestText,
-                       GuestPreference preference,
-                       BookingChannelInfo channelInfo,
-                       BreakfastOption breakfastOption,
-                       PaymentLedger paymentLedger,
-                       LocalTime estimatedArrivalTime) {
+    public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
+                       LocalDate checkInDate, int stayNights, int guestCount,
+                       String rawRequestText, GuestPreference preference,
+                       BookingChannelInfo channelInfo, BreakfastOption breakfastOption,
+                       PaymentLedger paymentLedger, LocalTime estimatedArrivalTime) {
         this(reservationId, guestName, bookedRoomType, checkInDate, stayNights, guestCount,
                 rawRequestText, null, preference, TagPreference.empty(), channelInfo, breakfastOption, paymentLedger, estimatedArrivalTime);
     }
 
-    // [7개 인자 호환 생성자]
     public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
                        LocalDate checkInDate, int stayNights, String rawRequestText, GuestPreference preference) {
         this(reservationId, guestName, bookedRoomType, checkInDate, stayNights, 1,
                 rawRequestText, null, preference, TagPreference.empty(), null, null, null, LocalTime.of(15, 0));
     }
 
-    // [6개 인자 호환 생성자]
     public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
                        int stayNights, String rawRequestText, GuestPreference preference) {
         this(reservationId, guestName, bookedRoomType, LocalDate.now(), stayNights, 1,
@@ -132,7 +122,7 @@ public class Reservation {
     }
 
     // ==========================================
-    // PMS 현장 관리용 수정 메서드 (원천 계약 원장은 절대 손대지 않음!)
+    // PMS 현장 관리용 수정 메서드
     // ==========================================
 
     public void updateOperationalDetails(String newGuestName, LocalDate newCheckInDate, Integer newStayNights, String staffMemo) {
@@ -148,10 +138,32 @@ public class Reservation {
         if (staffMemo != null) {
             this.internalStaffMemo = staffMemo.trim();
         }
+        // 날짜/박수 변경 시 일자별 스케줄도 안전하게 재조정
+        if (newCheckInDate != null || newStayNights != null) {
+            long currentUnitRate = (this.dailyRateSchedule != null && this.dailyRateSchedule.getRateForDate(this.operationalCheckInDate) > 0)
+                    ? this.dailyRateSchedule.getRateForDate(this.operationalCheckInDate)
+                    : 15_000L;
+            this.dailyRateSchedule = DailyRateSchedule.createDefault(this.operationalCheckInDate, this.operationalStayNights, currentUnitRate);
+        }
     }
 
     public void updateOperationalTags(TagPreference newTagPreference) {
         this.tagPreference = (newTagPreference != null) ? newTagPreference : TagPreference.empty();
+    }
+
+    // 🚀 일자별 요금 스케줄 갱신
+    public void updateDailyRates(Map<LocalDate, Long> newRates) {
+        Objects.requireNonNull(newRates, "요금 스케줄은 필수입니다.");
+        this.dailyRateSchedule = new DailyRateSchedule(newRates);
+    }
+
+    public DailyRateSchedule getDailyRateSchedule() {
+        if (this.dailyRateSchedule == null) {
+            long unit = this.operationalStayNights > 0 ? (this.paymentLedger.getTotalCharges() / this.operationalStayNights) : 15_000L;
+            if (unit <= 0) unit = 15_000L;
+            this.dailyRateSchedule = DailyRateSchedule.createDefault(this.operationalCheckInDate, this.operationalStayNights, unit);
+        }
+        return dailyRateSchedule;
     }
 
     public void assignRoom(String roomNumber) {
@@ -207,10 +219,8 @@ public class Reservation {
     }
 
     // ==========================================
-    // Getters: 계약 원천값과 운영값 분리 제공
+    // Getters
     // ==========================================
-
-    // [불변 계약 원장]
     public String getReservationId() { return reservationId; }
     public String getOriginalGuestName() { return originalGuestName; }
     public RoomType getBookedRoomType() { return bookedRoomType; }
@@ -218,14 +228,11 @@ public class Reservation {
     public int getContractStayNights() { return contractStayNights; }
     public String getRawRequestText() { return rawRequestText; }
     public String getRawXmlPayload() { return rawXmlPayload; }
-
-    // [현장 운영 상태]
     public String getOperationalGuestName() { return operationalGuestName; }
     public LocalDate getOperationalCheckInDate() { return operationalCheckInDate; }
     public int getOperationalStayNights() { return operationalStayNights; }
     public String getInternalStaffMemo() { return internalStaffMemo; }
 
-    // 기존 도메인 인터페이스 호환 게터
     public String getGuestName() { return operationalGuestName; }
     public LocalDate getCheckInDate() { return operationalCheckInDate; }
     public int getStayNights() { return operationalStayNights; }
@@ -260,6 +267,7 @@ public class Reservation {
         clone.assignedRoomNumber = this.assignedRoomNumber;
         clone.previousRoomNumber = this.previousRoomNumber;
         clone.status = this.status;
+        clone.dailyRateSchedule = this.dailyRateSchedule;
         return clone;
     }
 
@@ -277,6 +285,7 @@ public class Reservation {
         clone.assignedRoomNumber = this.assignedRoomNumber;
         clone.previousRoomNumber = this.previousRoomNumber;
         clone.status = this.status;
+        clone.dailyRateSchedule = this.dailyRateSchedule;
         return clone;
     }
 }
