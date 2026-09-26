@@ -132,13 +132,13 @@ public class Reservation {
         if (newCheckInDate != null) {
             this.operationalCheckInDate = newCheckInDate;
         }
-        if (newStayNights != null && newStayNights > 0) {
+        // 🚀 [0박 허용] 새벽 체크인/당일 아웃을 위해 0 이상의 박수 허용
+        if (newStayNights != null && newStayNights >= 0) {
             this.operationalStayNights = newStayNights;
         }
         if (staffMemo != null) {
             this.internalStaffMemo = staffMemo.trim();
         }
-        // 날짜/박수 변경 시 일자별 스케줄도 안전하게 재조정
         if (newCheckInDate != null || newStayNights != null) {
             long currentUnitRate = (this.dailyRateSchedule != null && this.dailyRateSchedule.getRateForDate(this.operationalCheckInDate) > 0)
                     ? this.dailyRateSchedule.getRateForDate(this.operationalCheckInDate)

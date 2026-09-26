@@ -70,44 +70,50 @@ public class SecurityConfig {
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                 )
                 .authorizeHttpRequests(auth -> auth
-                        // 0. 브라우저의 CORS Preflight (OPTIONS) 사전 검사는 인증 없이 무조건 허용
+                        // 0. CORS Preflight (OPTIONS) 사전 검사는 인증 없이 무조건 허용
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // 1. H2 콘솔 웹 경로 전면 허용
+                        // 1. H2 콘솔 및 인증 공개 엔드포인트
                         .requestMatchers("/h2-console/**").permitAll()
-
-                        // 2. 로그인/토큰 발급 허용
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/admin/staff").hasAuthority("ROLE_ADMIN")
 
-                        // 3. 동적 태그 관리 (ADMIN, STAFF 권한 유지)
+                        // 2. 시스템 인프라 및 나이트오딧 사전 점검/롤오버 (프론트 상시 연동을 위해 전체 허용)
+                        .requestMatchers("/api/system/**").permitAll()
+
+                        // 3. 동적 태그 관리
                         .requestMatchers("/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers("/api/admin/tags").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 4. 룸 인디케이터
                         .requestMatchers(HttpMethod.GET, "/api/rooms/indicator").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 5. 배정 및 운영 제어
+                        // 5. 배정, 룸 체인지, 오버라이드 및 요금 스케줄 갱신
                         .requestMatchers(HttpMethod.POST, "/api/reservations/batch-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/room-change").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/manual-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.DELETE, "/api/reservations/*/assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/operational-override").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/operational-tags").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers(HttpMethod.PUT, "/api/reservations/*/daily-rates").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers("/api/reservations/*/lock").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 6. 실무 리포트 CSV 다운로드 엔드포인트 허용 (전 직원 역할 인가)
+                        // 6. 실무 리포트 CSV 다운로드
                         .requestMatchers("/api/reports/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 7. 시뮬레이터
+                        // 7. 시뮬레이터 및 나이트 오딧 실행
                         .requestMatchers("/api/simulation/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/night-audit").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
-                        // 8. 체크인/체크아웃
+                        // 8. 체크인/체크아웃 및 원장(Folio) 수납/청구 거래 분개
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-in").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/check-out").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/*/folio/transactions").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 9. 예약 조회
                         .requestMatchers(HttpMethod.GET, "/api/reservations", "/api/reservations/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
-                        // 10. 그 외 모든 요청
+                        // 10. 그 외 모든 요청은 항상 마지막에 선언
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(new JwtAuthenticationFilter(tokenProvider), UsernamePasswordAuthenticationFilter.class);

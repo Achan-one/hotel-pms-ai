@@ -1,13 +1,7 @@
 package com.hotel.service;
 
 import com.hotel.channel.dto.ChannelReservationRequest;
-import com.hotel.domain.QuotaPolicy;
-import com.hotel.domain.Reservation;
-import com.hotel.domain.ReservationStatus;
-import com.hotel.domain.Room;
-import com.hotel.domain.RoomStatus;
-import com.hotel.domain.StayPeriod;
-import com.hotel.domain.TagPreference;
+import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
@@ -303,6 +297,40 @@ public class ReservationService {
                 room.setStatus(RoomStatus.OUT);
                 roomRepository.save(room);
             });
+        }
+
+        reservationRepository.save(reservation);
+    }
+
+    /**
+     * 원장 수납/청구 거래 등록 (복식 분개 지원)
+     */
+    public void addFolioTransaction(String reservationId,
+                                    String type,
+                                    String paymentMethod,
+                                    String category,
+                                    String description,
+                                    long amount,
+                                    String instantChargeCategory,
+                                    String instantChargeDescription) {
+        Reservation reservation = findReservationOrThrow(reservationId);
+        PaymentLedger ledger = reservation.getPaymentLedger();
+
+        if (instantChargeCategory != null && !instantChargeCategory.isBlank() && !"NONE".equalsIgnoreCase(instantChargeCategory)) {
+            // 사유가 선택된 경우: 청구(+)와 수납(-) 동시 등록 (±0 상쇄)
+            ledger.recordInstantSettlement(
+                    instantChargeCategory,
+                    instantChargeDescription != null ? instantChargeDescription : "현장 즉시 결제 항목",
+                    paymentMethod != null ? paymentMethod : "CREDIT_CARD",
+                    description,
+                    amount
+            );
+        } else if ("CHARGE".equalsIgnoreCase(type)) {
+            // 단순 비용 청구 (+)
+            ledger.addCharge(category != null ? category : "EXTRA_CHARGE", description, amount);
+        } else {
+            // 단순 수납 (-)
+            ledger.recordPayment(paymentMethod != null ? paymentMethod : "CREDIT_CARD", description, amount);
         }
 
         reservationRepository.save(reservation);
