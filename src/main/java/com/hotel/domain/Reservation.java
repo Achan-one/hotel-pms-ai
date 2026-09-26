@@ -2,6 +2,8 @@ package com.hotel.domain;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -38,7 +40,7 @@ public class Reservation {
     private LocalTime estimatedArrivalTime;
     private LocalTime lateCheckOutTime;
 
-    // 🚀 [신규] 일자별 1박 단가 스케줄 (나이트 오딧 동적 룸차지 포스팅 기준)
+    // 일자별 1박 단가 스케줄 (나이트 오딧 동적 룸차지 포스팅 기준)
     private DailyRateSchedule dailyRateSchedule;
 
     // 14개 인자 마스터 생성자
@@ -82,7 +84,6 @@ public class Reservation {
         this.actualCheckOutDate = null;
         this.status = ReservationStatus.PENDING;
 
-        // 🚀 일자별 기본 요금 스케줄 초기화
         long defaultRate = this.paymentLedger.getTotalCharges() > 0
                 ? (this.paymentLedger.getTotalCharges() / this.contractStayNights)
                 : 15_000L;
@@ -132,7 +133,6 @@ public class Reservation {
         if (newCheckInDate != null) {
             this.operationalCheckInDate = newCheckInDate;
         }
-        // 🚀 [0박 허용] 새벽 체크인/당일 아웃을 위해 0 이상의 박수 허용
         if (newStayNights != null && newStayNights >= 0) {
             this.operationalStayNights = newStayNights;
         }
@@ -151,7 +151,6 @@ public class Reservation {
         this.tagPreference = (newTagPreference != null) ? newTagPreference : TagPreference.empty();
     }
 
-    // 🚀 일자별 요금 스케줄 갱신
     public void updateDailyRates(Map<LocalDate, Long> newRates) {
         Objects.requireNonNull(newRates, "요금 스케줄은 필수입니다.");
         this.dailyRateSchedule = new DailyRateSchedule(newRates);
@@ -252,6 +251,11 @@ public class Reservation {
     public LocalTime getEstimatedArrivalTime() { return estimatedArrivalTime; }
     public LocalTime getLateCheckOutTime() { return lateCheckOutTime; }
     public void grantLateCheckOut(LocalTime time) { this.lateCheckOutTime = time; }
+
+    // 🚀 Jackson이 JSON 직렬화 시 Folio 거래 목록을 최상위에 자동 포함하도록 지원
+    public List<FolioTransaction> getTransactions() {
+        return (this.paymentLedger != null) ? this.paymentLedger.getTransactions() : Collections.emptyList();
+    }
 
     public Reservation withPreference(GuestPreference newPreference) {
         Reservation clone = new Reservation(
