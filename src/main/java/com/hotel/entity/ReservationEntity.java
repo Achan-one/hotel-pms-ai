@@ -1,6 +1,7 @@
 package com.hotel.entity;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.hotel.domain.*;
@@ -23,7 +24,9 @@ import java.util.stream.Collectors;
 )
 public class ReservationEntity {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     @Id
     @Column(name = "reservation_id", length = 50)
@@ -119,7 +122,7 @@ public class ReservationEntity {
     @Column(name = "daily_rates_json")
     private String dailyRatesJson;
 
-    // 🚀 [영속화 핵심] 거래 내역 원본을 JSON으로 온전히 저장
+    // 🚀 Folio 거래 내역 원본 JSON
     @Lob
     @Column(name = "transactions_json")
     private String transactionsJson;
@@ -162,7 +165,6 @@ public class ReservationEntity {
             entity.breakfastTicketsIssued = domain.getBreakfastOption().isTicketsIssued();
         }
 
-        // 🚀 결제 원장의 실시간 총액 및 세부 거래 내역 JSON 저장
         if (domain.getPaymentLedger() != null) {
             entity.paymentType = domain.getPaymentLedger().getPaymentType();
             entity.totalCharges = domain.getPaymentLedger().getTotalCharges();
@@ -170,7 +172,7 @@ public class ReservationEntity {
 
             try {
                 entity.transactionsJson = OBJECT_MAPPER.writeValueAsString(domain.getPaymentLedger().getTransactions());
-            } catch (Exception ignored) {
+            } catch (Exception e) {
                 entity.transactionsJson = "[]";
             }
         }
@@ -207,7 +209,7 @@ public class ReservationEntity {
             breakfast.issueTickets();
         }
 
-        // 🚀 원장 복원: DB 컬럼 합산값으로 임의 생성하지 않고, 빈 PaymentLedger에 저장된 개별 거래들을 그대로 복원
+        // 🚀 원장 복원: DB transactions_json 내역을 그대로 복원
         PaymentLedger payment = new PaymentLedger(
                 this.paymentType != null ? this.paymentType : PaymentLedger.PaymentType.PAY_ON_ARRIVAL,
                 this.totalCharges,
@@ -224,24 +226,8 @@ public class ReservationEntity {
                     payment.getTransactions().clear();
                     payment.getTransactions().addAll(txList);
                 }
-            } catch (Exception ignored) {}
-        } else {
-            // 저장된 거래가 아예 없는 초기 상태일 때만 기본 방값 1건 생성
-            if (this.totalCharges > 0) {
-                payment.getTransactions().add(new FolioTransaction(
-                        FolioTransaction.TransactionType.CHARGE,
-                        "ROOM_RATE",
-                        "기본 객실 예약 요금 청구",
-                        this.totalCharges
-                ));
-            }
-            if (this.totalPayments > 0) {
-                payment.getTransactions().add(new FolioTransaction(
-                        FolioTransaction.TransactionType.PAYMENT,
-                        this.paymentType == PaymentLedger.PaymentType.PREPAID ? "CREDIT_CARD" : "CASH",
-                        "수납 등록",
-                        this.totalPayments
-                ));
+            } catch (Exception e) {
+                System.err.println("원장 역직렬화 실패: " + e.getMessage());
             }
         }
 

@@ -9,64 +9,38 @@ public class PaymentLedger {
     private final PaymentType paymentType;
     private final List<FolioTransaction> transactions = new ArrayList<>();
 
+    // 🚀 사전 청구 강제 생성을 없앰 (체크인 전에는 원장이 0원이어야 정상)
     public PaymentLedger(PaymentType paymentType, long roomRateTotal) {
-        this.paymentType = paymentType;
-        long initialCharge = Math.max(0L, roomRateTotal);
-
-        if (initialCharge > 0) {
-            this.transactions.add(new FolioTransaction(
-                    FolioTransaction.TransactionType.CHARGE,
-                    "ROOM_RATE",
-                    "기본 객실 예약 요금 청구",
-                    initialCharge
-            ));
-        }
-
-        if (paymentType == PaymentType.PREPAID && initialCharge > 0) {
-            this.transactions.add(new FolioTransaction(
-                    FolioTransaction.TransactionType.PAYMENT,
-                    "CREDIT_CARD",
-                    "OTA 사전 카드 승인 결제 완료",
-                    initialCharge
-            ));
-        }
+        this.paymentType = paymentType != null ? paymentType : PaymentType.PAY_ON_ARRIVAL;
     }
 
-    // 🚀 DB 엔티티로부터 저장된 총액 및 세부 거래 내역을 복원하기 위한 전용 생성자
     public PaymentLedger(PaymentType paymentType, long totalCharges, long totalPayments) {
         this.paymentType = paymentType != null ? paymentType : PaymentType.PAY_ON_ARRIVAL;
     }
 
+    // 나이트 오딧 시 호출: 1박 객실료를 장부에 청구(+) 포스팅
     public void postRoomCharge(long dailyRate) {
         if (dailyRate > 0) {
             this.transactions.add(new FolioTransaction(
                     FolioTransaction.TransactionType.CHARGE,
-                    "DAILY_ROOM_CHARGE",
+                    "ROOM_CHARGE",
                     "나이트 오딧 일일 객실료 청구",
                     dailyRate
             ));
         }
     }
 
-    // 🚀 이용 명세 등록 (+): 오등록 취소/조정을 위해 음수/양수 모두 기록 허용
+    // 🚀 이용 명세 등록 (+): 부대시설, 미니바, 엑스트라 베드 등 한 줄씩 청구 추가
     public void addCharge(String category, String description, long amount) {
         this.transactions.add(new FolioTransaction(
                 FolioTransaction.TransactionType.CHARGE,
                 category != null ? category : "EXTRA_CHARGE",
-                description != null ? description : "추가 이용 요금",
+                description != null ? description : "이용 요금 청구",
                 amount
         ));
     }
 
-    public void addCharge(long amount) {
-        addCharge("EXTRA_CHARGE", "추가 부대시설/서비스 이용료", amount);
-    }
-
-    public void addIncidental(long amount) {
-        addCharge("INCIDENTAL", "부대시설 이용료", amount);
-    }
-
-    // 🚀 수납 등록 (-): 카드/현금/환불/정정 수납 기록 허용
+    // 🚀 수납 등록 (-): 카드, 현금 결제 한 줄씩 수납 추가
     public void recordPayment(String paymentMethod, String memo, long amount) {
         this.transactions.add(new FolioTransaction(
                 FolioTransaction.TransactionType.PAYMENT,
@@ -76,34 +50,18 @@ public class PaymentLedger {
         ));
     }
 
+    public void addCharge(long amount) {
+        addCharge("EXTRA_CHARGE", "추가 부대시설/서비스 이용료", amount);
+    }
+
     public void recordPayment(long amount) {
         recordPayment("CASH", "프론트 현금 수납", amount);
     }
 
-    /**
-     * 사유 선택 시 청구(+)와 수납(-)을 1쌍으로 동시 분개하여 ±0 상쇄 처리
-     */
     public void recordInstantSettlement(String chargeCategory, String chargeDesc, String paymentMethod, String paymentMemo, long amount) {
         if (amount != 0) {
-            this.transactions.add(new FolioTransaction(
-                    FolioTransaction.TransactionType.CHARGE,
-                    chargeCategory,
-                    chargeDesc,
-                    amount
-            ));
-            this.transactions.add(new FolioTransaction(
-                    FolioTransaction.TransactionType.PAYMENT,
-                    paymentMethod,
-                    paymentMemo,
-                    amount
-            ));
-        }
-    }
-
-    public void settle() {
-        long due = getTotalDue();
-        if (due > 0) {
-            recordPayment("SETTLEMENT", "체크아웃 전액 정산 수납", due);
+            addCharge(chargeCategory, chargeDesc, amount);
+            recordPayment(paymentMethod, paymentMemo, amount);
         }
     }
 
@@ -130,9 +88,6 @@ public class PaymentLedger {
     }
 
     public boolean isSettledForCheckOut() {
-        if (paymentType == PaymentType.PREPAID) {
-            return true;
-        }
         return isSettled();
     }
 
