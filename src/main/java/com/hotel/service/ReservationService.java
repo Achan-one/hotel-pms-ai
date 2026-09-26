@@ -150,16 +150,53 @@ public class ReservationService {
         if (!reservation.isAssigned()) {
             throw new IllegalStateException("객실 배정이 완료되지 않은 예약은 체크인할 수 없습니다: " + reservationId);
         }
-        reservation.checkIn();
+        if (reservation.getStatus() == ReservationStatus.CHECKED_IN) {
+            throw new IllegalStateException("이미 체크인 완료된 예약입니다: " + reservationId);
+        }
 
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
-            roomRepository.findByRoomNumberForUpdate(roomNumber).ifPresent(room -> {
-                room.setStatus(RoomStatus.OCCUPIED);
-                roomRepository.save(room);
-            });
+            Room room = roomRepository.findByRoomNumberForUpdate(roomNumber)
+                    .orElseThrow(() -> new IllegalArgumentException("해당 호실(" + roomNumber + ")이 존재하지 않습니다."));
+
+            // 🚀 [중복 체크인 방어 1] 물리적 객실이 이미 재실(OCCUPIED) 상태인 경우 체크인 차단
+            if (room.getStatus() == RoomStatus.OCCUPIED) {
+                throw new IllegalStateException(String.format(
+                        "[%s호] 현재 다른 투숙객이 재실 중인 객실입니다. 이전 투숙객의 퇴실 및 청소가 완료되어야 체크인이 가능합니다.",
+                        roomNumber
+                ));
+            }
+
+            // 🚀 [중복 체크인 방어 2] 해당 방의 상태가 입실 가능한 상태(VACANT, ASSIGNED)인지 검증
+            if (room.getStatus() == RoomStatus.OUT || room.getStatus() == RoomStatus.CLEANING) {
+                throw new IllegalStateException(String.format(
+                        "[%s호] 청소가 완료되지 않은 객실입니다. (현재 상태: %s)",
+                        roomNumber, room.getStatus().getTitle()
+                ));
+            }
+            if (room.getStatus().isOutOfService()) {
+                throw new IllegalStateException(String.format(
+                        "[%s호] 고장/점검 중인 객실입니다. (현재 상태: %s)",
+                        roomNumber, room.getStatus().getTitle()
+                ));
+            }
+
+            // 🚀 [스케줄 점유 확정]
+            StayPeriod period = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+            if (!room.getBookedPeriods().contains(period)) {
+                if (!room.tryBookPeriod(period)) {
+                    throw new IllegalStateException(String.format(
+                            "[%s호] 해당 투숙 기간(%s)에 이미 다른 예약 스케줄이 점유되어 있어 입실할 수 없습니다.",
+                            roomNumber, period
+                    ));
+                }
+            }
+
+            room.setStatus(RoomStatus.OCCUPIED);
+            roomRepository.save(room);
         }
 
+        reservation.checkIn();
         reservationRepository.save(reservation);
     }
 
@@ -342,7 +379,7 @@ public class ReservationService {
     }
 
     /**
-     * 원장 수납/청구 거래 등록 (복식 분개 지원)
+     * 원장 수납/청구 거래 등록 (Audit Trail: 각 거래를 개별 전표로 영구 누적)
      */
     public void addFolioTransaction(String reservationId,
                                     String type,
@@ -355,7 +392,20 @@ public class ReservationService {
         Reservation reservation = findReservationOrThrow(reservationId);
         PaymentLedger ledger = reservation.getPaymentLedger();
 
-        if (instantChargeCategory != null && !instantChargeCategory.isBlank() && !"NONE".equalsIgnoreCase(instantChargeCategory)) {
+        // 1. 청구 등록 (+)
+        if ("CHARGE".equalsIgnoreCase(type)) {
+            String cat = (category != null && !category.isBlank()) ? category : "EXTRA_CHARGE";
+            String desc = (description != null && !description.isBlank()) ? description : "이용 요금 청구";
+            ledger.addCharge(cat, desc, amount);
+        }
+        // 2. 수납 등록 (-)
+        else if ("PAYMENT".equalsIgnoreCase(type)) {
+            String method = (paymentMethod != null && !paymentMethod.isBlank()) ? paymentMethod : "CASH";
+            String desc = (description != null && !description.isBlank()) ? description : (method.equals("CREDIT_CARD") ? "신용카드 승인" : "현금 지불 수납");
+            ledger.recordPayment(method, desc, amount);
+        }
+        // 3. 동시 상쇄 분개 (선택 시)
+        else if (instantChargeCategory != null && !instantChargeCategory.isBlank() && !"NONE".equalsIgnoreCase(instantChargeCategory)) {
             ledger.recordInstantSettlement(
                     instantChargeCategory,
                     instantChargeDescription != null ? instantChargeDescription : "현장 즉시 결제 항목",
@@ -363,12 +413,9 @@ public class ReservationService {
                     description,
                     amount
             );
-        } else if ("CHARGE".equalsIgnoreCase(type)) {
-            ledger.addCharge(category != null ? category : "EXTRA_CHARGE", description, amount);
-        } else {
-            ledger.recordPayment(paymentMethod != null ? paymentMethod : "CREDIT_CARD", description, amount);
         }
 
+        // DB에 즉시 영속화
         reservationRepository.save(reservation);
     }
 

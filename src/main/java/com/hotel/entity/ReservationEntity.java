@@ -2,6 +2,7 @@ package com.hotel.entity;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.hotel.domain.*;
 import jakarta.persistence.*;
 
@@ -21,6 +22,8 @@ import java.util.stream.Collectors;
         }
 )
 public class ReservationEntity {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @Id
     @Column(name = "reservation_id", length = 50)
@@ -112,10 +115,14 @@ public class ReservationEntity {
     @Column(name = "late_check_out_time")
     private LocalTime lateCheckOutTime;
 
-    // 🚀 [신규] 일자별 1박 단가 JSON 문자열 저장 컬럼
     @Lob
     @Column(name = "daily_rates_json")
     private String dailyRatesJson;
+
+    // 🚀 [영속화 핵심] 거래 내역 원본을 JSON으로 온전히 저장
+    @Lob
+    @Column(name = "transactions_json")
+    private String transactionsJson;
 
     protected ReservationEntity() {}
 
@@ -155,22 +162,30 @@ public class ReservationEntity {
             entity.breakfastTicketsIssued = domain.getBreakfastOption().isTicketsIssued();
         }
 
+        // 🚀 결제 원장의 실시간 총액 및 세부 거래 내역 JSON 저장
         if (domain.getPaymentLedger() != null) {
             entity.paymentType = domain.getPaymentLedger().getPaymentType();
             entity.totalCharges = domain.getPaymentLedger().getTotalCharges();
             entity.totalPayments = domain.getPaymentLedger().getTotalPayments();
+
+            try {
+                entity.transactionsJson = OBJECT_MAPPER.writeValueAsString(domain.getPaymentLedger().getTransactions());
+            } catch (Exception ignored) {
+                entity.transactionsJson = "[]";
+            }
         }
 
         entity.estimatedArrivalTime = domain.getEstimatedArrivalTime();
         entity.lateCheckOutTime = domain.getLateCheckOutTime();
 
-        // 🚀 일자별 요금 스케줄 직렬화
-        if (domain.getDailyRateSchedule() != null) {
+        if (domain.getDailyRateSchedule() != null && domain.getDailyRateSchedule().getDailyRates() != null) {
             try {
                 Map<String, Long> rateMap = new LinkedHashMap<>();
                 domain.getDailyRateSchedule().getDailyRates().forEach((date, rate) -> rateMap.put(date.toString(), rate));
-                entity.dailyRatesJson = new ObjectMapper().writeValueAsString(rateMap);
-            } catch (Exception ignored) {}
+                entity.dailyRatesJson = OBJECT_MAPPER.writeValueAsString(rateMap);
+            } catch (Exception ignored) {
+                entity.dailyRatesJson = "{}";
+            }
         }
 
         return entity;
@@ -192,13 +207,42 @@ public class ReservationEntity {
             breakfast.issueTickets();
         }
 
+        // 🚀 원장 복원: DB 컬럼 합산값으로 임의 생성하지 않고, 빈 PaymentLedger에 저장된 개별 거래들을 그대로 복원
         PaymentLedger payment = new PaymentLedger(
                 this.paymentType != null ? this.paymentType : PaymentLedger.PaymentType.PAY_ON_ARRIVAL,
-                this.totalCharges
+                this.totalCharges,
+                this.totalPayments
         );
-        long diff = this.totalPayments - (this.paymentType == PaymentLedger.PaymentType.PREPAID ? this.totalCharges : 0);
-        if (diff > 0) {
-            payment.recordPayment(diff);
+
+        if (this.transactionsJson != null && !this.transactionsJson.isBlank() && !this.transactionsJson.equals("[]")) {
+            try {
+                List<FolioTransaction> txList = OBJECT_MAPPER.readValue(
+                        this.transactionsJson,
+                        new TypeReference<List<FolioTransaction>>() {}
+                );
+                if (txList != null) {
+                    payment.getTransactions().clear();
+                    payment.getTransactions().addAll(txList);
+                }
+            } catch (Exception ignored) {}
+        } else {
+            // 저장된 거래가 아예 없는 초기 상태일 때만 기본 방값 1건 생성
+            if (this.totalCharges > 0) {
+                payment.getTransactions().add(new FolioTransaction(
+                        FolioTransaction.TransactionType.CHARGE,
+                        "ROOM_RATE",
+                        "기본 객실 예약 요금 청구",
+                        this.totalCharges
+                ));
+            }
+            if (this.totalPayments > 0) {
+                payment.getTransactions().add(new FolioTransaction(
+                        FolioTransaction.TransactionType.PAYMENT,
+                        this.paymentType == PaymentLedger.PaymentType.PREPAID ? "CREDIT_CARD" : "CASH",
+                        "수납 등록",
+                        this.totalPayments
+                ));
+            }
         }
 
         Reservation domain = new Reservation(
@@ -245,11 +289,9 @@ public class ReservationEntity {
             domain.grantLateCheckOut(this.lateCheckOutTime);
         }
 
-        // 🚀 일자별 요금 스케줄 역직렬화
         if (this.dailyRatesJson != null && !this.dailyRatesJson.isBlank()) {
             try {
-                ObjectMapper om = new ObjectMapper();
-                Map<String, Object> map = om.readValue(this.dailyRatesJson, new TypeReference<>() {});
+                Map<String, Object> map = OBJECT_MAPPER.readValue(this.dailyRatesJson, new TypeReference<>() {});
                 Map<LocalDate, Long> rates = new LinkedHashMap<>();
                 map.forEach((dateStr, rateVal) -> rates.put(LocalDate.parse(dateStr), Long.valueOf(rateVal.toString())));
                 domain.updateDailyRates(rates);
@@ -286,4 +328,5 @@ public class ReservationEntity {
     public String getChannelReservationNo() { return channelReservationNo; }
     public String getPlanName() { return planName; }
     public String getDailyRatesJson() { return dailyRatesJson; }
+    public String getTransactionsJson() { return transactionsJson; }
 }

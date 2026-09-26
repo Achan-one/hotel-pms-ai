@@ -32,6 +32,11 @@ public class PaymentLedger {
         }
     }
 
+    // 🚀 DB 엔티티로부터 저장된 총액 및 세부 거래 내역을 복원하기 위한 전용 생성자
+    public PaymentLedger(PaymentType paymentType, long totalCharges, long totalPayments) {
+        this.paymentType = paymentType != null ? paymentType : PaymentType.PAY_ON_ARRIVAL;
+    }
+
     public void postRoomCharge(long dailyRate) {
         if (dailyRate > 0) {
             this.transactions.add(new FolioTransaction(
@@ -43,15 +48,14 @@ public class PaymentLedger {
         }
     }
 
+    // 🚀 이용 명세 등록 (+): 오등록 취소/조정을 위해 음수/양수 모두 기록 허용
     public void addCharge(String category, String description, long amount) {
-        if (amount > 0) {
-            this.transactions.add(new FolioTransaction(
-                    FolioTransaction.TransactionType.CHARGE,
-                    category,
-                    description,
-                    amount
-            ));
-        }
+        this.transactions.add(new FolioTransaction(
+                FolioTransaction.TransactionType.CHARGE,
+                category != null ? category : "EXTRA_CHARGE",
+                description != null ? description : "추가 이용 요금",
+                amount
+        ));
     }
 
     public void addCharge(long amount) {
@@ -62,15 +66,14 @@ public class PaymentLedger {
         addCharge("INCIDENTAL", "부대시설 이용료", amount);
     }
 
+    // 🚀 수납 등록 (-): 카드/현금/환불/정정 수납 기록 허용
     public void recordPayment(String paymentMethod, String memo, long amount) {
-        if (amount > 0) {
-            this.transactions.add(new FolioTransaction(
-                    FolioTransaction.TransactionType.PAYMENT,
-                    paymentMethod,
-                    memo,
-                    amount
-            ));
-        }
+        this.transactions.add(new FolioTransaction(
+                FolioTransaction.TransactionType.PAYMENT,
+                paymentMethod != null ? paymentMethod : "CASH",
+                memo != null ? memo : "수납 등록",
+                amount
+        ));
     }
 
     public void recordPayment(long amount) {
@@ -81,7 +84,7 @@ public class PaymentLedger {
      * 사유 선택 시 청구(+)와 수납(-)을 1쌍으로 동시 분개하여 ±0 상쇄 처리
      */
     public void recordInstantSettlement(String chargeCategory, String chargeDesc, String paymentMethod, String paymentMemo, long amount) {
-        if (amount > 0) {
+        if (amount != 0) {
             this.transactions.add(new FolioTransaction(
                     FolioTransaction.TransactionType.CHARGE,
                     chargeCategory,
@@ -138,7 +141,7 @@ public class PaymentLedger {
     }
 
     public List<FolioTransaction> getTransactions() {
-        return Collections.unmodifiableList(transactions);
+        return transactions;
     }
 
     public PaymentType getPaymentType() { return paymentType; }
