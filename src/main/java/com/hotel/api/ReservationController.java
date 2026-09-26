@@ -44,7 +44,37 @@ public class ReservationController {
             Map<String, Long> dailyRates
     ) {}
 
-    // 🚀 [신규] 예약 일자별 1박 요금 스케줄 일괄 갱신 API
+    public record FolioTransactionApiRequest(
+            String type,                    // "PAYMENT" 또는 "CHARGE"
+            String paymentMethod,           // "CREDIT_CARD", "CASH" 등
+            String category,                // "MINIBAR", "DAMAGE", "EXTRA_BED" 등
+            String description,             // 메모 및 승인번호
+            long amount,                    // 금액
+            String instantChargeCategory,   // 동시 분개 시 사유 (선택 시 ±0 처리)
+            String instantChargeDescription // 동시 분개 상세
+    ) {}
+
+    // 🚀 [신규] 예약별 원장 수납/청구 거래 등록 API (복식 분개 지원)
+    @PostMapping("/{reservationId}/folio/transactions")
+    public ResponseEntity<ApiResponse<Void>> addFolioTransaction(
+            @PathVariable String reservationId,
+            @RequestBody FolioTransactionApiRequest request) {
+
+        reservationService.addFolioTransaction(
+                reservationId,
+                request.type(),
+                request.paymentMethod(),
+                request.category(),
+                request.description(),
+                request.amount(),
+                request.instantChargeCategory(),
+                request.instantChargeDescription()
+        );
+
+        return ResponseEntity.ok(ApiResponse.ok("원장 거래 내역이 정상적으로 등록되었습니다.", null));
+    }
+
+    // 예약 일자별 1박 요금 스케줄 일괄 갱신 API
     @PutMapping("/{reservationId}/daily-rates")
     public ResponseEntity<ApiResponse<Void>> updateDailyRates(
             @PathVariable String reservationId,
