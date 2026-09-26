@@ -5,9 +5,9 @@ import com.hotel.channel.tlx.TlxChannelAdapter;
 import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.TagRepository;
 import com.hotel.service.HotelOperationService;
 import com.hotel.service.ReservationService;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,6 +25,7 @@ public class SimulationTestController {
     private final ReservationRepository reservationRepository;
     private final ReservationService reservationService;
     private final RoomRepository roomRepository;
+    private final TagRepository tagRepository;
     private final TlxChannelAdapter tlxAdapter;
     private final HotelOperationService hotelOperationService;
 
@@ -52,16 +53,17 @@ public class SimulationTestController {
     public SimulationTestController(ReservationRepository reservationRepository,
                                     ReservationService reservationService,
                                     RoomRepository roomRepository,
+                                    TagRepository tagRepository,
                                     TlxChannelAdapter tlxAdapter,
                                     HotelOperationService hotelOperationService) {
         this.reservationRepository = reservationRepository;
         this.reservationService = reservationService;
         this.roomRepository = roomRepository;
+        this.tagRepository = tagRepository;
         this.tlxAdapter = tlxAdapter;
         this.hotelOperationService = hotelOperationService;
     }
 
-    // 🚀 DTO 본문에 targetDate 추가
     public record BulkSimulationRequest(List<String> customNotes, String targetDate) {}
 
     /**
@@ -73,33 +75,31 @@ public class SimulationTestController {
                 ? LocalDate.parse(targetDate.trim())
                 : hotelOperationService.getCurrentBusinessDate();
 
-        Reservation r1 = new Reservation("RSV-TEST-01", "Tanaka Kenji", RoomType.SUPERIOR_TWIN, currentBusinessDate, 2, "고층 희망", GuestPreference.empty());
-        r1.assignRoom("0501");
+        String suffix = String.valueOf(System.currentTimeMillis() % 10000);
+
+        Reservation r1 = new Reservation("RSV-TEST-01-" + suffix, "Tanaka Kenji", RoomType.SUPERIOR_TWIN, currentBusinessDate, 2, "고층 희망", GuestPreference.empty());
         reservationRepository.save(r1);
 
-        Reservation r2 = new Reservation("RSV-TEST-02", "Sato Yuki", RoomType.MODERATE_DOUBLE, currentBusinessDate, 3, "조용한 방", GuestPreference.empty());
-        r2.assignRoom("0302");
-        r2.checkIn();
+        Reservation r2 = new Reservation("RSV-TEST-02-" + suffix, "Sato Yuki", RoomType.MODERATE_DOUBLE, currentBusinessDate, 3, "조용한 방", GuestPreference.empty());
         reservationRepository.save(r2);
-        roomRepository.findByRoomNumber("0302").ifPresent(r -> r.setStatus(RoomStatus.OCCUPIED));
 
-        Reservation r3 = new Reservation("RSV-TEST-03", "Kim Minsoo", RoomType.SUPERIOR_DOUBLE, currentBusinessDate, 1, "엘리베이터 근처", GuestPreference.empty());
+        Reservation r3 = new Reservation("RSV-TEST-03-" + suffix, "Kim Minsoo", RoomType.SUPERIOR_DOUBLE, currentBusinessDate, 1, "엘리베이터 근처", GuestPreference.empty());
         reservationRepository.save(r3);
 
-        Reservation r4 = new Reservation("RSV-TEST-04", "John Smith", RoomType.SUPERIOR_TWIN, currentBusinessDate, 4, "연박", GuestPreference.empty());
+        Reservation r4 = new Reservation("RSV-TEST-04-" + suffix, "John Smith", RoomType.SUPERIOR_TWIN, currentBusinessDate, 4, "연박", GuestPreference.empty());
         reservationRepository.save(r4);
 
-        Reservation r5 = new Reservation("RSV-TEST-05", "Lee Jinwoo", RoomType.EXECUTIVE_DOUBLE, currentBusinessDate, 2, "최고층 선호", GuestPreference.empty());
+        Reservation r5 = new Reservation("RSV-TEST-05-" + suffix, "Lee Jinwoo", RoomType.EXECUTIVE_DOUBLE, currentBusinessDate, 2, "최고층 선호", GuestPreference.empty());
         reservationRepository.save(r5);
 
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "message", String.format("공식 영업일자(%s) 기준 검증용 샘플 예약 5건 주입 완료", currentBusinessDate)
+                "message", String.format("기준 일자(%s) 샘플 예약 5건 추가 적재 완료", currentBusinessDate)
         ));
     }
 
     /**
-     * 2. TL-Lincoln(린칸) XML 전문 인입 시뮬레이션
+     * 2. TL-Lincoln XML 전문 인입
      */
     @PostMapping("/lincoln-mock")
     public ResponseEntity<?> simulateLincolnXml(@RequestParam(required = false) String targetDate) {
@@ -107,10 +107,11 @@ public class SimulationTestController {
                 ? LocalDate.parse(targetDate.trim())
                 : hotelOperationService.getCurrentBusinessDate();
 
+        String uid = String.valueOf(System.currentTimeMillis() % 10000);
         String mockXml = String.format("""
             <TL_Reservations>
               <Reservation>
-                <ReservationId>LNC-%s-99</ReservationId>
+                <ReservationId>LNC-%s-%s</ReservationId>
                 <GuestName>Yamamoto Daiki</GuestName>
                 <RoomType>SUPERIOR_TWIN</RoomType>
                 <CheckInDate>%s</CheckInDate>
@@ -118,68 +119,28 @@ public class SimulationTestController {
                 <SpecialRequest>금연실 및 저층 선호</SpecialRequest>
               </Reservation>
             </TL_Reservations>
-            """, currentBusinessDate.toString().replace("-", ""), currentBusinessDate);
+            """, currentBusinessDate.toString().replace("-", ""), uid, currentBusinessDate);
 
         List<ChannelReservationRequest> requests = tlxAdapter.parseIncomingRequests(mockXml);
         reservationService.processChannelRequests(requests);
-        return ResponseEntity.ok(Map.of("success", true, "message", "TL-Lincoln XML 예약 전문 인입 및 동기화 완료"));
+        return ResponseEntity.ok(Map.of("success", true, "message", "TL-Lincoln XML 예약 전문 인입 및 추가 완료"));
     }
 
     /**
-     * 3. [개선] 50인 실명 + 6대 OTA 채널 + 당일 날짜 완벽 연동 대량 인입
+     * 3. [개선] 기존 데이터를 지우지 않고 누적(Append) 추가되는 50건 인입
      */
     @PostMapping("/bulk-simulate-50-and-30")
     public ResponseEntity<?> bulkSimulate50And30(@RequestBody(required = false) BulkSimulationRequest request) {
-
-        // 🚀 DTO의 targetDate 확인 -> 없으면 DB의 공식 영업일자 사용
-        LocalDate currentBusinessDate;
+        LocalDate selectedDate;
         if (request != null && request.targetDate() != null && !request.targetDate().isBlank()) {
-            currentBusinessDate = LocalDate.parse(request.targetDate().trim());
+            selectedDate = LocalDate.parse(request.targetDate().trim());
         } else {
-            currentBusinessDate = hotelOperationService.getCurrentBusinessDate();
+            selectedDate = hotelOperationService.getCurrentBusinessDate();
         }
 
-        // 1. 이미 투숙 중인 인하우스 30건 생성 (어제 입실해서 오늘 체류 중인 상태)
-        List<Room> allRooms = roomRepository.findAll();
-        int inHouseRegistered = 0;
+        long batchTimestamp = System.currentTimeMillis();
 
-        for (int i = 1; i <= 30; i++) {
-            if (i > allRooms.size()) break;
-            Room room = allRooms.get(i - 1);
-
-            String rsvId = String.format("STAY-INHOUSE-%03d", i);
-            String guestName = UNIQUE_GUEST_NAMES[(i - 1) % UNIQUE_GUEST_NAMES.length];
-
-            // 어제 체크인 ~ 3박 투숙 (오늘 재실)
-            StayPeriod stayPeriod = new StayPeriod(currentBusinessDate.minusDays(1), 3);
-            if (room.isAvailable(stayPeriod)) {
-                room.bookPeriod(stayPeriod);
-                room.setStatus(RoomStatus.OCCUPIED);
-
-                BookingChannelInfo channelInfo = new BookingChannelInfo(
-                        BookingChannelInfo.ChannelType.DIRECT,
-                        "DIR-" + rsvId,
-                        "호텔 공식 프론트 현장 일반 플랜"
-                );
-
-                Reservation inHouseRes = new Reservation(
-                        rsvId, guestName, room.getRoomType(),
-                        currentBusinessDate.minusDays(1), 3, 1,
-                        "기존 투숙 중인 고객", null,
-                        GuestPreference.empty(), TagPreference.empty(),
-                        channelInfo, BreakfastOption.included(1),
-                        new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 45000L),
-                        LocalTime.of(15, 0)
-                );
-
-                inHouseRes.assignRoom(room.getRoomNumber());
-                inHouseRes.checkIn();
-                reservationRepository.save(inHouseRes);
-                inHouseRegistered++;
-            }
-        }
-
-        // 2. 기본 요구사항 6개 풀
+        // 1. 기본 요구사항 풀 구성
         List<String> combinedNotes = new ArrayList<>(List.of(
                 "어머니 무릎이 안 좋으셔서 엘리베이터 가깝고 낮은 층으로 부탁드립니다.",
                 "High floor with a nice Tokyo Tower view please!",
@@ -199,17 +160,18 @@ public class SimulationTestController {
 
         int totalNotePoolSize = combinedNotes.size();
 
-        // 3. 당일(currentBusinessDate) 체크인 신규 50건 생성
+        // 2. 선택한 날짜(selectedDate) 기준 신규 미배정 예약 50건 생성 및 누적 적재
         List<Reservation> newBookings = new ArrayList<>();
         RoomType[] types = RoomType.values();
-        Random rand = new Random(currentBusinessDate.toEpochDay());
+        Random rand = new Random(batchTimestamp);
 
         for (int i = 0; i < 50; i++) {
-            String rsvId = String.format("BULK-CMS-%03d", i + 1);
-            String guestName = UNIQUE_GUEST_NAMES[i];
+            // 고유 식별자 발급 (덮어쓰기 방어)
+            String rsvId = String.format("BULK-%s-%03d-%d", selectedDate.toString().replace("-", ""), i + 1, batchTimestamp % 10000);
+            String guestName = UNIQUE_GUEST_NAMES[i % UNIQUE_GUEST_NAMES.length];
             BookingChannelInfo.ChannelType channelType = OTA_TYPES[rand.nextInt(OTA_TYPES.length)];
             RoomType type = types[rand.nextInt(types.length)];
-            int nights = rand.nextInt(5) + 1;
+            int nights = rand.nextInt(4) + 1; // 1~4박
             String note = combinedNotes.get(i % totalNotePoolSize);
 
             long baseRate = switch (type) {
@@ -223,8 +185,8 @@ public class SimulationTestController {
 
             BookingChannelInfo channelInfo = new BookingChannelInfo(
                     channelType,
-                    channelType.name() + "-RSV-" + (100000 + i),
-                    "【" + channelType.getDescription() + "】 조식 포함 특가 스탠다드 프로모션"
+                    channelType.name() + "-RSV-" + (batchTimestamp % 100000 + i),
+                    "【" + channelType.getDescription() + "】 프로모션 패키지"
             );
 
             BreakfastOption breakfastOption = (i % 2 == 0) ? BreakfastOption.included(1) : BreakfastOption.none();
@@ -233,14 +195,14 @@ public class SimulationTestController {
 
             Reservation newRes = new Reservation(
                     rsvId, guestName, type,
-                    currentBusinessDate, nights, 1,
+                    selectedDate, nights, 1,
                     note, null,
                     GuestPreference.empty(), TagPreference.empty(),
                     channelInfo, breakfastOption, paymentLedger,
                     LocalTime.of(15 + (i % 6), 0)
             );
 
-            newRes.updateOperationalDetails(guestName, currentBusinessDate, nights, note);
+            newRes.updateOperationalDetails(guestName, selectedDate, nights, note);
             newBookings.add(newRes);
         }
 
@@ -248,12 +210,13 @@ public class SimulationTestController {
 
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "message", String.format("공식 영업일자(%s) 기준 50건 신규 인입 및 재실 %d실 동기화 완료!", currentBusinessDate, inHouseRegistered)
+                "message", String.format("[%s] 체크인 기준 50건의 예약이 기존 원장에 성공적으로 누적 적재되었습니다! (총 누적 예약: %d건)",
+                        selectedDate, reservationRepository.count())
         ));
     }
 
     /**
-     * 4. 예약 및 객실 물리 상태 완전 초기화
+     * 4. 예약 원장 및 룸 점유만 초기화
      */
     @PostMapping("/clear")
     public ResponseEntity<?> clearAll() {
@@ -261,15 +224,65 @@ public class SimulationTestController {
 
         for (Room room : roomRepository.findAll()) {
             room.release();
-
             try {
                 java.lang.reflect.Field statusField = Room.class.getDeclaredField("status");
                 statusField.setAccessible(true);
                 statusField.set(room, RoomStatus.VACANT);
-            } catch (Exception ignored) {
+            } catch (Exception ignored) {}
+            roomRepository.save(room);
+        }
+
+        return ResponseEntity.ok(Map.of("success", true, "message", "모든 예약 데이터가 초기화되고 191실이 완전한 공실(VACANT)로 리셋되었습니다."));
+    }
+
+    /**
+     * 5. [신규] 모든 설정 및 데이터 완벽 초기화 (Full Reset)
+     * - 예약 전량 삭제
+     * - 191실 공실화 및 커스텀 태그 초기화
+     * - 기본 시스템 태그 7종 복원
+     * - 시스템 공식 영업일자 기본값(2026-09-20) 롤백
+     */
+    @PostMapping("/reset-all-settings")
+    public ResponseEntity<?> resetAllSettings() {
+        // 1) 예약 삭제
+        reservationRepository.clear();
+
+        // 2) 시스템 기본 태그 목록 외 커스텀 태그 전량 삭제
+        List<RoomTag> currentTags = tagRepository.findAll();
+        for (RoomTag tag : currentTags) {
+            if (!tag.isSystemDefault()) {
+                tagRepository.deleteByCode(tag.code());
             }
         }
 
-        return ResponseEntity.ok(Map.of("success", true, "message", "모든 예약 및 객실 191실이 완전한 공실(VACANT)로 초기화되었습니다."));
+        // 3) 191실 객실 스케줄 및 커스텀 태그 초기화
+        for (Room room : roomRepository.findAll()) {
+            room.release();
+            for (String tagCode : new ArrayList<>(room.getTags())) {
+                boolean isDefault = switch (tagCode) {
+                    case "HIGH_FLOOR", "LOW_FLOOR", "NEAR_ELEVATOR", "AWAY_FROM_ELEVATOR", "CORNER_ROOM", "QUIET_ZONE", "ACCESSIBLE" -> true;
+                    default -> false;
+                };
+                if (!isDefault) {
+                    room.removeTag(tagCode);
+                }
+            }
+            try {
+                java.lang.reflect.Field statusField = Room.class.getDeclaredField("status");
+                statusField.setAccessible(true);
+                statusField.set(room, RoomStatus.VACANT);
+            } catch (Exception ignored) {}
+            roomRepository.save(room);
+        }
+
+        // 4) 공식 영업일자 2026-09-20 기본 롤백
+        LocalDate defaultDate = LocalDate.of(2026, 9, 20);
+        hotelOperationService.setBusinessDate(defaultDate);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "businessDate", defaultDate.toString(),
+                "message", "모든 예약, 커스텀 태그, 객실 점유가 초기화되었으며 영업일자가 2026-09-20으로 복원되었습니다."
+        ));
     }
 }
