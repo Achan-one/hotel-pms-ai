@@ -17,10 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Set;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/reservations")
@@ -42,6 +39,30 @@ public class ReservationController {
             Set<String> preferredTags,
             Set<String> avoidTags
     ) {}
+
+    public record UpdateDailyRatesRequest(
+            Map<String, Long> dailyRates
+    ) {}
+
+    // 🚀 [신규] 예약 일자별 1박 요금 스케줄 일괄 갱신 API
+    @PutMapping("/{reservationId}/daily-rates")
+    public ResponseEntity<ApiResponse<Void>> updateDailyRates(
+            @PathVariable String reservationId,
+            @RequestBody UpdateDailyRatesRequest request) {
+
+        Reservation reservation = reservationService.getReservation(reservationId)
+                .orElseThrow(() -> new NoSuchElementException("해당 예약을 찾을 수 없습니다: " + reservationId));
+
+        Map<LocalDate, Long> newRates = new LinkedHashMap<>();
+        if (request.dailyRates() != null) {
+            request.dailyRates().forEach((dateStr, rate) -> newRates.put(LocalDate.parse(dateStr), rate));
+        }
+
+        reservation.updateDailyRates(newRates);
+        reservationService.receiveReservations(List.of(reservation));
+
+        return ResponseEntity.ok(ApiResponse.ok("일자별 1박 요금 스케줄이 성공적으로 갱신되었습니다.", null));
+    }
 
     @PatchMapping("/{reservationId}/operational-tags")
     public ResponseEntity<ApiResponse<Void>> updateOperationalTags(

@@ -1,5 +1,7 @@
 package com.hotel.entity;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotel.domain.*;
 import jakarta.persistence.*;
 
@@ -20,7 +22,6 @@ import java.util.stream.Collectors;
 )
 public class ReservationEntity {
 
-    // 1. [불변] 원천 계약 원장
     @Id
     @Column(name = "reservation_id", length = 50)
     private String reservationId;
@@ -45,7 +46,6 @@ public class ReservationEntity {
     @Column(name = "raw_xml_payload")
     private String rawXmlPayload;
 
-    // 2. [가변] 현장 운영 오버라이드
     @Column(name = "operational_guest_name", length = 100)
     private String operationalGuestName;
 
@@ -71,14 +71,12 @@ public class ReservationEntity {
     @Column(name = "status", nullable = false, length = 20)
     private ReservationStatus status;
 
-    // 3. 선호/기피 태그 (쉼표 구분 문자열 직렬화)
     @Column(name = "preferred_tags_csv", length = 500)
     private String preferredTagsCsv;
 
     @Column(name = "avoid_tags_csv", length = 500)
     private String avoidTagsCsv;
 
-    // 4. 채널 / 조식 / 결제 정보
     @Enumerated(EnumType.STRING)
     @Column(name = "channel_type", length = 30)
     private BookingChannelInfo.ChannelType channelType;
@@ -114,11 +112,13 @@ public class ReservationEntity {
     @Column(name = "late_check_out_time")
     private LocalTime lateCheckOutTime;
 
+    // 🚀 [신규] 일자별 1박 단가 JSON 문자열 저장 컬럼
+    @Lob
+    @Column(name = "daily_rates_json")
+    private String dailyRatesJson;
+
     protected ReservationEntity() {}
 
-    /**
-     * Domain -> Entity 변환
-     */
     public static ReservationEntity fromDomain(Reservation domain) {
         ReservationEntity entity = new ReservationEntity();
         entity.reservationId = domain.getReservationId();
@@ -164,24 +164,27 @@ public class ReservationEntity {
         entity.estimatedArrivalTime = domain.getEstimatedArrivalTime();
         entity.lateCheckOutTime = domain.getLateCheckOutTime();
 
+        // 🚀 일자별 요금 스케줄 직렬화
+        if (domain.getDailyRateSchedule() != null) {
+            try {
+                Map<String, Long> rateMap = new LinkedHashMap<>();
+                domain.getDailyRateSchedule().getDailyRates().forEach((date, rate) -> rateMap.put(date.toString(), rate));
+                entity.dailyRatesJson = new ObjectMapper().writeValueAsString(rateMap);
+            } catch (Exception ignored) {}
+        }
+
         return entity;
     }
 
-    /**
-     * Entity -> Domain 복원
-     */
     public Reservation toDomain() {
-        // 1. 태그 복원
         Set<String> prefSet = parseCsvToSet(this.preferredTagsCsv);
         Set<String> avoidSet = parseCsvToSet(this.avoidTagsCsv);
         TagPreference tagPref = new TagPreference(prefSet, avoidSet);
 
-        // 2. 채널 복원
         BookingChannelInfo channel = (this.channelType != null)
                 ? new BookingChannelInfo(this.channelType, this.channelReservationNo, this.planName)
                 : BookingChannelInfo.direct(this.reservationId);
 
-        // 3. 조식 복원
         BreakfastOption breakfast = this.breakfastIncluded
                 ? BreakfastOption.included(this.dailyBreakfastCount)
                 : BreakfastOption.none();
@@ -189,7 +192,6 @@ public class ReservationEntity {
             breakfast.issueTickets();
         }
 
-        // 4. 원장 복원
         PaymentLedger payment = new PaymentLedger(
                 this.paymentType != null ? this.paymentType : PaymentLedger.PaymentType.PAY_ON_ARRIVAL,
                 this.totalCharges
@@ -199,7 +201,6 @@ public class ReservationEntity {
             payment.recordPayment(diff);
         }
 
-        // 5. 도메인 생성자 조립
         Reservation domain = new Reservation(
                 this.reservationId,
                 this.originalGuestName,
@@ -217,7 +218,6 @@ public class ReservationEntity {
                 this.estimatedArrivalTime
         );
 
-        // 운영 오버라이드 및 상태 주입
         domain.updateOperationalDetails(
                 this.operationalGuestName,
                 this.operationalCheckInDate,
@@ -232,7 +232,6 @@ public class ReservationEntity {
             domain.changeRoom(this.assignedRoomNumber);
         }
 
-        // 상태 강제 보정 전이
         if (this.status == ReservationStatus.CHECKED_IN) {
             domain.checkIn();
         } else if (this.status == ReservationStatus.CHECKED_OUT) {
@@ -246,6 +245,17 @@ public class ReservationEntity {
             domain.grantLateCheckOut(this.lateCheckOutTime);
         }
 
+        // 🚀 일자별 요금 스케줄 역직렬화
+        if (this.dailyRatesJson != null && !this.dailyRatesJson.isBlank()) {
+            try {
+                ObjectMapper om = new ObjectMapper();
+                Map<String, Object> map = om.readValue(this.dailyRatesJson, new TypeReference<>() {});
+                Map<LocalDate, Long> rates = new LinkedHashMap<>();
+                map.forEach((dateStr, rateVal) -> rates.put(LocalDate.parse(dateStr), Long.valueOf(rateVal.toString())));
+                domain.updateDailyRates(rates);
+            } catch (Exception ignored) {}
+        }
+
         return domain;
     }
 
@@ -257,7 +267,6 @@ public class ReservationEntity {
                 .collect(Collectors.toSet());
     }
 
-    // Getters
     public String getReservationId() { return reservationId; }
     public String getOriginalGuestName() { return originalGuestName; }
     public RoomType getBookedRoomType() { return bookedRoomType; }
@@ -276,4 +285,5 @@ public class ReservationEntity {
     public BookingChannelInfo.ChannelType getChannelType() { return channelType; }
     public String getChannelReservationNo() { return channelReservationNo; }
     public String getPlanName() { return planName; }
+    public String getDailyRatesJson() { return dailyRatesJson; }
 }

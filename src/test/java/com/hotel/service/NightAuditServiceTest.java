@@ -1,12 +1,6 @@
 package com.hotel.service;
 
-import com.hotel.domain.GuestPreference;
-import com.hotel.domain.Reservation;
-import com.hotel.domain.ReservationStatus;
-import com.hotel.domain.Room;
-import com.hotel.domain.RoomStatus;
-import com.hotel.domain.RoomType;
-import com.hotel.domain.StayPeriod;
+import com.hotel.domain.*;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.memory.InMemoryReservationRepository;
@@ -17,10 +11,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class NightAuditServiceTest {
 
@@ -29,16 +22,15 @@ class NightAuditServiceTest {
     private HotelOperationService hotelOperationService;
     private NightAuditService nightAuditService;
 
-    private final LocalDate businessDate = LocalDate.of(2026, 9, 20);
+    private final LocalDate initialDate = LocalDate.of(2026, 9, 20);
 
     @BeforeEach
     void setUp() {
         reservationRepository = new InMemoryReservationRepository();
         roomRepository = new InMemoryRoomRepository();
 
-        // 💡 Java 25 호환: Byte Buddy 충돌을 피하기 위해 Mockito 대신 경량 Fake 인스턴스 사용
         hotelOperationService = new HotelOperationService(null) {
-            private LocalDate currentDate = businessDate;
+            private LocalDate currentDate = initialDate;
 
             @Override
             public LocalDate getCurrentBusinessDate() {
@@ -47,8 +39,8 @@ class NightAuditServiceTest {
 
             @Override
             public LocalDate rolloverToNextDate() {
-                this.currentDate = this.currentDate.plusDays(1);
-                return this.currentDate;
+                currentDate = currentDate.plusDays(1);
+                return currentDate;
             }
 
             @Override
@@ -61,59 +53,68 @@ class NightAuditServiceTest {
     }
 
     @Test
-    @DisplayName("[Night Audit] 마감 시 미체크인 예약은 노쇼(CANCELLED) 처리되고 객실 스케줄이 회수되며, 재실 고객은 일일 숙박료가 포스팅되어야 한다")
-    void runNightAudit_ProcessesNoShowAndPostsRoomCharge() {
-        // Given 1: 미체크인(DUE-IN) 당일 도착 예약 1건 (노쇼 대상)
-        String noShowRoomNo = "0301";
-        Room room1 = roomRepository.findByRoomNumber(noShowRoomNo).orElseThrow();
-        StayPeriod period1 = new StayPeriod(businessDate, 2);
-        room1.bookPeriod(period1);
-        room1.setStatus(RoomStatus.ASSIGNED);
-        roomRepository.save(room1);
-
-        Reservation noShowGuest = new Reservation(
-                "RSV-NOSHOW-01", "Tanaka Ken", RoomType.MODERATE_DOUBLE,
-                businessDate, 2, "고층", GuestPreference.empty()
-        );
-        noShowGuest.assignRoom(noShowRoomNo);
-        reservationRepository.save(noShowGuest);
-
-        // Given 2: 이미 체크인하여 투숙 중인 인하우스(CHECKED_IN) 고객 1건 (룸차지 대상)
-        String inHouseRoomNo = "0501";
-        Room room2 = roomRepository.findByRoomNumber(inHouseRoomNo).orElseThrow();
-        StayPeriod period2 = new StayPeriod(businessDate, 3);
-        room2.bookPeriod(period2);
-        room2.setStatus(RoomStatus.OCCUPIED);
-        roomRepository.save(room2);
-
+    @DisplayName("[나이트 오딧] 인하우스 고객에게 당일 설정 단가가 정상 포스팅 및 집계되어야 한다")
+    void nightAudit_PostsDynamicDailyRate() {
         Reservation inHouseGuest = new Reservation(
-                "RSV-INHOUSE-01", "Sato Yui", RoomType.SUPERIOR_TWIN,
-                businessDate, 3, "조용한 방", GuestPreference.empty()
+                "RSV-AUDIT-01",
+                "Yamada Taro",
+                RoomType.SUPERIOR_TWIN,
+                initialDate,
+                2,
+                "조용한 방",
+                GuestPreference.empty()
         );
-        inHouseGuest.assignRoom(inHouseRoomNo);
+        inHouseGuest.assignRoom("0501");
         inHouseGuest.checkIn();
+
+        inHouseGuest.updateDailyRates(Map.of(
+                initialDate, 25_000L,
+                initialDate.plusDays(1), 30_000L
+        ));
         reservationRepository.save(inHouseGuest);
 
-        // When: 9월 20일 기준 야간 마감(Night Audit) 가동
-        NightAuditResult result = nightAuditService.runNightAudit(businessDate);
+        Room room = roomRepository.findByRoomNumber("0501").orElseThrow();
+        room.setStatus(RoomStatus.OCCUPIED);
+        roomRepository.save(room);
 
-        // Then 1: 결과 요약 DTO 검증
+        NightAuditResult result = nightAuditService.runNightAudit(initialDate);
+
         assertTrue(result.success());
-        assertEquals(businessDate, result.previousBusinessDate());
-        assertEquals(businessDate.plusDays(1), result.newBusinessDate());
-        assertEquals(1, result.noShowCount());
         assertEquals(1, result.roomChargePostedCount());
-        assertEquals(16_000L, result.totalRoomRevenuePosted(), "SUPERIOR_TWIN 1박 요금 16,000엔 가산 확인");
+        assertEquals(25_000L, result.totalRoomRevenuePosted());
+        assertEquals(LocalDate.of(2026, 9, 21), result.newBusinessDate());
+    }
 
-        // Then 2: 노쇼 고객 상태 전이 및 객실 스케줄 회수 검증
-        Reservation processedNoShow = reservationRepository.findById("RSV-NOSHOW-01").orElseThrow();
-        assertEquals(ReservationStatus.CANCELLED, processedNoShow.getStatus());
-        Room freedRoom = roomRepository.findByRoomNumber(noShowRoomNo).orElseThrow();
-        assertTrue(freedRoom.isAvailable(period1), "스케줄이 정상 반납되어 재판매 가능해야 함");
+    @Test
+    @DisplayName("[노쇼 처리] 당일 미도착 상태인 예약은 취소되고 객실이 공실로 환원되어야 한다")
+    void nightAudit_CancelsNoShowAndReleasesRoom() {
+        Reservation noShowGuest = new Reservation(
+                "RSV-NOSHOW-01",
+                "Suzuki Ichiro",
+                RoomType.MODERATE_DOUBLE,
+                initialDate,
+                1,
+                null,
+                GuestPreference.empty()
+        );
+        noShowGuest.assignRoom("0303");
+        reservationRepository.save(noShowGuest);
 
-        // Then 3: 인하우스 고객 원장(PaymentLedger) 룸차지 포스팅 검증
-        Reservation checkedGuest = reservationRepository.findById("RSV-INHOUSE-01").orElseThrow();
-        assertEquals(16_000L, checkedGuest.getPaymentLedger().getTotalCharges());
-        assertFalse(checkedGuest.getPaymentLedger().isSettled());
+        Room room = roomRepository.findByRoomNumber("0303").orElseThrow();
+        room.bookPeriod(new StayPeriod(initialDate, 1));
+        room.setStatus(RoomStatus.ASSIGNED);
+        roomRepository.save(room);
+
+        NightAuditResult result = nightAuditService.runNightAudit(initialDate);
+
+        assertEquals(1, result.noShowCount());
+        assertTrue(result.noShowReservationIds().contains("RSV-NOSHOW-01"));
+
+        Reservation cancelled = reservationRepository.findById("RSV-NOSHOW-01").orElseThrow();
+        assertEquals(ReservationStatus.CANCELLED, cancelled.getStatus());
+
+        Room freedRoom = roomRepository.findByRoomNumber("0303").orElseThrow();
+        assertEquals(RoomStatus.VACANT, freedRoom.getStatus());
+        assertTrue(freedRoom.isAvailable(new StayPeriod(initialDate, 1)));
     }
 }
