@@ -2,9 +2,12 @@ package com.hotel.service;
 
 import com.hotel.channel.dto.ChannelReservationRequest;
 import com.hotel.domain.*;
+import com.hotel.entity.CityLedgerRecordEntity;
+import com.hotel.repository.CityLedgerRepository;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
+import com.hotel.repository.memory.InMemoryCityLedgerRepository;
 import com.hotel.repository.memory.InMemoryTagRepository;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
@@ -34,26 +37,39 @@ public class ReservationService {
     private final BatchAssigner batchAssigner;
     private final QuotaPolicy quotaPolicy;
     private final ReservationValidator validator;
+    private final CityLedgerRepository cityLedgerRepository;
 
+    // 1. 스프링 컨테이너 자동 주입용 정석 생성자
     @Autowired
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser,
                               TagRepository tagRepository,
-                              QuotaPolicy quotaPolicy) {
+                              QuotaPolicy quotaPolicy,
+                              CityLedgerRepository cityLedgerRepository) {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.reservationRepository = Objects.requireNonNull(reservationRepository, "reservationRepository는 필수입니다.");
         this.quotaPolicy = (quotaPolicy != null) ? quotaPolicy : new QuotaPolicy();
         this.validator = new ReservationValidator();
         this.aiParser = (aiParser != null) ? aiParser : new AiPreferenceParser();
         this.batchAssigner = new BatchAssigner(roomRepository, tagRepository, this.quotaPolicy);
+        this.cityLedgerRepository = Objects.requireNonNull(cityLedgerRepository, "cityLedgerRepository는 필수입니다.");
     }
 
-    // 단위 테스트 편의용 3개 인자 오버로딩 생성자
+    // 2. Main.java 및 인메모리 통합 테스트용 생성자
+    public ReservationService(ReservationRepository reservationRepository,
+                              RoomRepository roomRepository,
+                              AiPreferenceParser aiParser,
+                              TagRepository tagRepository,
+                              QuotaPolicy quotaPolicy) {
+        this(reservationRepository, roomRepository, aiParser, tagRepository, quotaPolicy, new InMemoryCityLedgerRepository());
+    }
+
+    // 3. 단위 테스트 편의용 3개 인자 생성자
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser) {
-        this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), new QuotaPolicy());
+        this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), new QuotaPolicy(), new InMemoryCityLedgerRepository());
     }
 
     public List<Reservation> receiveReservations(List<Reservation> rawReservations) {
@@ -299,6 +315,29 @@ public class ReservationService {
             });
         }
 
+        // 🚀 [City Ledger] OTA 사전결제(PREPAID) 건은 체크아웃 시 OTA 외상매출금 정산 원장에 자동 기록
+        if (reservation.getPaymentLedger() != null && reservation.getPaymentLedger().getPaymentType() == PaymentLedger.PaymentType.PREPAID) {
+            long billedAmount = reservation.getPaymentLedger().getTotalCharges();
+            BookingChannelInfo.ChannelType channel = (reservation.getChannelInfo() != null)
+                    ? reservation.getChannelInfo().channelType()
+                    : BookingChannelInfo.ChannelType.DIRECT;
+            String channelRsvNo = (reservation.getChannelInfo() != null)
+                    ? reservation.getChannelInfo().channelReservationNo()
+                    : reservation.getReservationId();
+
+            CityLedgerRecordEntity record = new CityLedgerRecordEntity(
+                    channel,
+                    reservation.getReservationId(),
+                    reservation.getGuestName(),
+                    channelRsvNo,
+                    reservation.getCheckInDate(),
+                    effectiveDate,
+                    billedAmount,
+                    effectiveDate
+            );
+            cityLedgerRepository.save(record);
+        }
+
         reservationRepository.save(reservation);
     }
 
@@ -317,7 +356,6 @@ public class ReservationService {
         PaymentLedger ledger = reservation.getPaymentLedger();
 
         if (instantChargeCategory != null && !instantChargeCategory.isBlank() && !"NONE".equalsIgnoreCase(instantChargeCategory)) {
-            // 사유가 선택된 경우: 청구(+)와 수납(-) 동시 등록 (±0 상쇄)
             ledger.recordInstantSettlement(
                     instantChargeCategory,
                     instantChargeDescription != null ? instantChargeDescription : "현장 즉시 결제 항목",
@@ -326,10 +364,8 @@ public class ReservationService {
                     amount
             );
         } else if ("CHARGE".equalsIgnoreCase(type)) {
-            // 단순 비용 청구 (+)
             ledger.addCharge(category != null ? category : "EXTRA_CHARGE", description, amount);
         } else {
-            // 단순 수납 (-)
             ledger.recordPayment(paymentMethod != null ? paymentMethod : "CREDIT_CARD", description, amount);
         }
 

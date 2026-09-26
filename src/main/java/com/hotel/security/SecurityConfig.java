@@ -113,6 +113,11 @@ public class SecurityConfig {
                         // 9. 예약 조회
                         .requestMatchers(HttpMethod.GET, "/api/reservations", "/api/reservations/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
+                        // 회계 및 정산 원장 API 인가
+                        .requestMatchers(HttpMethod.GET, "/api/accounting/charge-codes").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
+                        .requestMatchers("/api/accounting/charge-codes/**").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers("/api/accounting/city-ledger").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+
                         // 10. 그 외 모든 요청은 항상 마지막에 선언
                         .anyRequest().authenticated()
                 )
