@@ -109,6 +109,7 @@ public class RoomAssigner {
         for (Room candidate : sortedCandidates) {
             if (candidate.tryBookPeriod(targetPeriod)) {
                 reservation.assignRoom(candidate.getRoomNumber());
+                roomRepository.save(candidate); // 중요(방 중복 방지)
                 return Optional.of(candidate);
             }
         }
