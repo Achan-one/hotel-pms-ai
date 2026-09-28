@@ -34,38 +34,33 @@
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor Staff as 프론트/시스템
-    participant RS as ReservationService
-    participant Val as ReservationValidator
-    participant AI as AiPreferenceParser (Gemini)
-    participant BA as BatchAssigner
-    participant RA as RoomAssigner
-    participant Repo as Room / ResRepository
+  autonumber
+  actor Staff as 프론트 / 시스템
+  participant RS as ReservationService
+  participant AI as Gemini 2.5 Flash
+  participant BA as BatchAssigner
+  participant RA as RoomAssigner
+  participant DB as Room / Res Repository
 
-    Staff->>RS: 당일 예약 50건 일괄 배정 요청 (runDailyBatchAssignment)
-    RS->>Val: 입력 데이터 유효성 검증 (누락, 31박 초과, 중복 ID)
-    Val-->>RS: 통과된 PENDING 예약 목록
-    
-    rect rgb(240, 248, 255)
-    note right of RS: [1-Call Batch] 네트워크 오버헤드 1/50 축소
-    RS->>AI: 50건 요청 메모 JSON 배열 1회 전송 (POST)
-    AI-->>RS: GuestPreference & TagPreference 일괄 매핑 반환
-    end
+  Staff->>RS: 당일 예약 50건 일괄 배정 요청
+  RS->>RS: 입력 데이터 무결성 검증 (누락·중복·초과박 차단)
 
-    RS->>BA: 선호도 주입된 우선순위 큐 전달
-    note over BA: 1순위 연박(장기체류) > 2순위 제약조건 수 > 3순위 FIFO 정렬
+  Note over RS,AI: [1-Call Batch] 50건 요청 메모 JSON 1회 전송
+  RS->>AI: 50건 비정형 요청 메모 일괄 분석 (POST)
+  AI-->>RS: GuestPreference & TagPreference 매핑 반환
 
-    loop 우선순위 큐 순차 배정
-        BA->>RA: assign(Reservation)
-        RA->>RA: Pass 1 [Hard Filter]: 계약 룸타입, 쿼터 보존(Hold) & [checkIn, checkOut) 공실 검증
-        RA->>RA: Pass 2 [Soft Scoring]: 층수/EV/코너/소음/연박 가중치 채점
-        RA->>Repo: 최적 객실 tryBookPeriod() 등록 & roomRepository.save(candidate) 즉시 영속화
-        RA-->>BA: 배정 성공 객실 반환 (실패 시 FailedAssignmentItem 기록)
-    end
+  RS->>BA: 우선순위 정렬 큐 전달 (연박 > 제약조건수 > FIFO)
 
-    BA-->>RS: BatchAssignmentResult (성공 31건 / 실패 13건 / 경고 6건)
-    RS-->>Staff: 확정 장부 동기화 및 요약 보고서 반환
+  loop 우선순위 큐 순차 배정
+    BA->>RA: assign(Reservation)
+    RA->>RA: Pass 1 [Hard]: 룸타입 · 보존 쿼터 · 가용성 검증
+    RA->>RA: Pass 2 [Soft]: 층수 · EV · 코너 · 소음 · 연박 채점
+    RA->>DB: tryBookPeriod() 확정 & roomRepository.save() 영속화
+    RA-->>BA: 배정 객실 반환 (실패 시 차선 배정/사유 기록)
+  end
+
+  BA-->>RS: 배치 배정 결과 (성공 31 / 실패 13 / 경고 6)
+  RS-->>Staff: 원장 동기화 확정 및 최종 요약 보고서 반환
 ```
 
 ---
