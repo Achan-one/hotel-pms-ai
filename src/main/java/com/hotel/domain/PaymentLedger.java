@@ -94,6 +94,12 @@ public class PaymentLedger {
     public long getTotalDue() {
         return Math.max(0L, getBalance());
     }
+    public void settle() {
+        long due = getTotalDue();
+        if (due > 0) {
+            recordPayment("SETTLEMENT", "체크아웃 전액 정산 수납", due);
+        }
+    }
 
     public List<FolioTransaction> getTransactions() {
         return transactions;

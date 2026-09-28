@@ -40,7 +40,8 @@ class ReportExportServiceTest {
         reportExportService = new ReportExportService(reservationRepository, roomRepository, assigner);
 
         // 1. 어제 체크인한 3박 연박 재실 고객 (9/20 ~ 9/23) -> 오늘(9/21) 기준 2일 차 In-House
-        PaymentLedger paidLedger = new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 300_000L);
+        PaymentLedger paidLedger = new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 0);
+        paidLedger.addCharge("ROOM_RATE", "연박 객실료 총액", 300_000L); // 🚀 명시적 청구 추가
         Reservation stayOver = new Reservation(
                 "RSV-STAY-01", "Tanaka", RoomType.MODERATE_DOUBLE,
                 yesterday, 3, 1, "조용히", GuestPreference.empty(),
@@ -54,7 +55,8 @@ class ReportExportServiceTest {
         });
 
         // 2. 어제 체크인하고 오늘(9/21) 출발 예정인 1박 현장결제 미수금 고객 (9/20 ~ 9/21)
-        PaymentLedger unpaidLedger = new PaymentLedger(PaymentLedger.PaymentType.PAY_ON_ARRIVAL, 150_000L);
+        PaymentLedger unpaidLedger = new PaymentLedger(PaymentLedger.PaymentType.PAY_ON_ARRIVAL, 0);
+        unpaidLedger.addCharge("ROOM_RATE", "현장 결제 1박 룸차지", 150_000L); // 🚀 명시적 청구 추가
         Reservation departingToday = new Reservation(
                 "RSV-DEP-01", "Suzuki", RoomType.SUPERIOR_DOUBLE,
                 yesterday, 1, 1, "엘리베이터 근처", GuestPreference.empty(),
@@ -91,15 +93,12 @@ class ReportExportServiceTest {
     void exportHousekeepingWorkSheetToCsv_StrictlyHidesGuestNames() {
         String csv = reportExportService.exportHousekeepingWorkSheetToCsv(today);
 
-        // 헤더 검증
         assertTrue(csv.startsWith("우선순위,호실,층,타입,룸랙상태,작업구분,특이사항\r\n"));
 
-        // 개인정보 마스킹 검증: 투숙객 실명이 청소 리스트 CSV 텍스트 어디에도 포함되지 않아야 함
         assertFalse(csv.contains("Tanaka"), "청소 리스트에 재실 고객 실명이 노출되어서는 안 됩니다.");
         assertFalse(csv.contains("Suzuki"), "청소 리스트에 퇴실 고객 실명이 노출되어서는 안 됩니다.");
         assertFalse(csv.contains("Alice"), "청소 리스트에 도착 고객 실명이 노출되어서는 안 됩니다.");
 
-        // 우선순위와 객실 번호 정상 직렬화 확인
         assertTrue(csv.contains("P1_URGENT,0505,5"));
     }
 
@@ -149,7 +148,6 @@ class ReportExportServiceTest {
 
         String csv = reportExportService.exportDepartureListToCsv(today);
         assertTrue(csv.contains("예약ID,고객명,호실,체크인,체크아웃,상태,미수금(BalanceDue)\r\n"));
-        // 도메인 정식 타이틀 "투숙중" 반영
         assertTrue(csv.contains("RSV-DEP-01,Suzuki,0505,2026-09-20,2026-09-21,투숙중,150000"));
     }
 
@@ -209,5 +207,4 @@ class ReportExportServiceTest {
         assertTrue(csv.contains("예약번호,고객명,객실타입,체크인,박수,배정호실,상태,요청사항\r\n"));
         assertTrue(csv.contains("RSV-ARR-01,Alice,슈페리얼 트윈"));
     }
-
 }
