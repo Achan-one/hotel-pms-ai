@@ -28,10 +28,11 @@ public class AiPreferenceParser {
 
     private static final Logger log = LoggerFactory.getLogger(AiPreferenceParser.class);
 
-    private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+    static final String DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
     private final TagRepository tagRepository;
     private final String apiKey;
+    private final String baseUrl;
     private final AiModelConfig config;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -55,6 +56,12 @@ public class AiPreferenceParser {
 
     // 모든 의존성을 받는 기본 생성자
     public AiPreferenceParser(TagRepository tagRepository, String apiKey, AiModelConfig config) {
+        this(tagRepository, apiKey, config, DEFAULT_BASE_URL);
+    }
+
+    // 요청을 받는 주소를 바꿀 수 있는 생성자. 테스트에서 실제 Gemini 대신 로컬 서버로 나가는 요청을 확인할 때 쓴다.
+    AiPreferenceParser(TagRepository tagRepository, String apiKey, AiModelConfig config, String baseUrl) {
+        this.baseUrl = baseUrl;
         this.tagRepository = (tagRepository != null) ? tagRepository : new InMemoryTagRepository();
         this.apiKey = apiKey;
         this.config = (config != null) ? config : AiModelConfig.fromEnvOrDefault();
@@ -76,7 +83,7 @@ public class AiPreferenceParser {
         }
 
         try {
-            String endpoint = BASE_URL + config.getModelName() + ":generateContent";
+            String endpoint = baseUrl + config.getModelName() + ":generateContent";
             String requestPayload = buildPromptPayload(requestText.trim());
 
             HttpRequest request = HttpRequest.newBuilder()
@@ -115,8 +122,10 @@ public class AiPreferenceParser {
         }
 
         try {
-            String endpoint = BASE_URL + config.getModelName() + ":generateContent";
-            String requestPayload = buildBatchPromptPayload(reservations);
+            String endpoint = baseUrl + config.getModelName() + ":generateContent";
+            // AI에게는 PMS 예약 번호와 요구사항만 보낸다. 응답에 담겨 오는 번호를 내부 예약 ID로 되돌리려고 대응표를 만든다.
+            Map<String, String> reservationIdByToken = new HashMap<>();
+            String requestPayload = buildBatchPromptPayload(reservations, reservationIdByToken);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint))
@@ -133,7 +142,7 @@ public class AiPreferenceParser {
                 return resultMap;
             }
 
-            return extractBatchTagPreferencesFromJson(response.body());
+            return extractBatchTagPreferencesFromJson(response.body(), reservationIdByToken);
 
         } catch (Exception e) {
             log.warn("Gemini 일괄 파싱 실패", e);
@@ -158,12 +167,18 @@ public class AiPreferenceParser {
         sysInst.putArray("parts").addObject().put("text", systemInstruction);
 
         var contents = root.putArray("contents");
-        contents.addObject().putArray("parts").addObject().put("text", "요청 메모: \"" + userText + "\"");
+        contents.addObject().putArray("parts").addObject().put("text", "요청 메모: \"" + PiiMasker.mask(userText) + "\"");
 
         return objectMapper.writeValueAsString(root);
     }
 
-    private String buildBatchPromptPayload(List<Reservation> reservations) throws IOException {
+    /**
+     * 일괄 요청 본문을 만든다. 예약마다 {reservationNo, requestNote} 두 필드만 싣는다.
+     * 투숙객 이름, OTA 예약 ID, 객실 타입, 박수는 태그를 뽑는 데 필요 없으므로 보내지 않는다.
+     *
+     * @param reservationIdByToken 출력 인자. AI에게 보낸 번호 -> 내부 예약 ID 대응표를 채운다.
+     */
+    private String buildBatchPromptPayload(List<Reservation> reservations, Map<String, String> reservationIdByToken) throws IOException {
         String systemInstruction = getTagSystemInstruction(true);
 
         var root = objectMapper.createObjectNode();
@@ -183,13 +198,17 @@ public class AiPreferenceParser {
         var parts = contents.addObject().putArray("parts");
 
         var reservationListArray = objectMapper.createArrayNode();
+        int sequence = 0;
         for (Reservation r : reservations) {
+            sequence++;
+            // 저장된 예약은 PMS 예약 번호를 쓰고, 아직 저장 전이라 번호가 없으면 이번 요청에서만 쓰는 임시 번호를 쓴다.
+            String token = (r.getPmsReservationNo() != null && !r.getPmsReservationNo().isBlank())
+                    ? r.getPmsReservationNo() : "REQ-" + sequence;
+            reservationIdByToken.put(token, r.getReservationId());
+
             var node = reservationListArray.addObject();
-            node.put("reservationId", r.getReservationId());
-            node.put("guestName", r.getGuestName());
-            node.put("roomType", r.getBookedRoomType().name());
-            node.put("nights", r.getStayNights());
-            node.put("requestNote", r.getRawRequestText() != null ? r.getRawRequestText() : "");
+            node.put("reservationNo", token);
+            node.put("requestNote", PiiMasker.mask(r.getRawRequestText()));
         }
 
         parts.addObject().put("text", "분석할 예약 데이터 목록:\n" + objectMapper.writeValueAsString(reservationListArray));
@@ -203,7 +222,7 @@ public class AiPreferenceParser {
         String format = isBatch ? """
                 [
                   {
-                    "reservationId": "RSV-001",
+                    "reservationNo": "PMS-260920-A1B2C3D4",
                     "preferredTags": ["HIGH_FLOOR", "VIEW_TOWER"],
                     "avoidTags": ["NEAR_ELEVATOR"]
                   }
@@ -242,7 +261,8 @@ public class AiPreferenceParser {
         return dto.toDomain();
     }
 
-    private Map<String, TagPreference> extractBatchTagPreferencesFromJson(String responseBody) throws IOException {
+    private Map<String, TagPreference> extractBatchTagPreferencesFromJson(String responseBody,
+                                                                          Map<String, String> reservationIdByToken) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         String jsonText = root.path("candidates").get(0).path("content").path("parts").get(0).path("text").asText();
 
@@ -251,10 +271,12 @@ public class AiPreferenceParser {
                 new TypeReference<>() {}
         );
 
+        // 응답의 예약 번호를 내부 예약 ID로 되돌린다. 우리가 보내지 않은 번호는 무시한다.
         Map<String, TagPreference> map = new HashMap<>();
         for (GeminiBatchTagDto dto : dtoList) {
-            if (dto.getReservationId() != null) {
-                map.put(dto.getReservationId(), dto.toDomain());
+            String reservationId = (dto.getReservationNo() != null) ? reservationIdByToken.get(dto.getReservationNo()) : null;
+            if (reservationId != null) {
+                map.put(reservationId, dto.toDomain());
             }
         }
         return map;

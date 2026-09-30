@@ -41,6 +41,9 @@ public class Reservation {
     // 일자별 1박 단가 스케줄 (나이트 오딧 동적 룸차지 포스팅 기준)
     private DailyRateSchedule dailyRateSchedule;
 
+    // PMS가 발급한 예약 번호. 저장할 때 처음 정해지고(저장소가 채움) 이후에는 바뀌지 않는다.
+    private String pmsReservationNo;
+
     // 낙관적 락용 버전. DB에서 읽어온 값을 그대로 들고 다니다가 저장 때 되돌려준다.
     private Long version;
 
@@ -287,6 +290,7 @@ public class Reservation {
         clone.status = this.status;
         clone.dailyRateSchedule = this.dailyRateSchedule;
         clone.version = this.version;
+        clone.pmsReservationNo = this.pmsReservationNo;
         return clone;
     }
 
@@ -308,8 +312,13 @@ public class Reservation {
         clone.lateCheckOutTime = this.lateCheckOutTime;
         clone.dailyRateSchedule = this.dailyRateSchedule;
         clone.version = this.version;
+        clone.pmsReservationNo = this.pmsReservationNo;
         return clone;
     }
+
+    public String getPmsReservationNo() { return pmsReservationNo; }
+
+    public void setPmsReservationNo(String pmsReservationNo) { this.pmsReservationNo = pmsReservationNo; }
 
     @JsonIgnore
     public Long getVersion() { return version; }

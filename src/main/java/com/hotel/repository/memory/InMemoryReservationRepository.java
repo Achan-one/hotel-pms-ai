@@ -1,5 +1,6 @@
 package com.hotel.repository.memory;
 
+import com.hotel.domain.PmsReservationNumber;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.ReservationStatus;
 import com.hotel.repository.ReservationRepository;
@@ -20,6 +21,12 @@ public class InMemoryReservationRepository implements ReservationRepository {
     @Override
     public void save(Reservation reservation) {
         Objects.requireNonNull(reservation, "저장할 예약 객체는 null일 수 없습니다.");
+        // DB 저장소와 같은 규칙: 새 예약이면 번호를 발급하고, 같은 ID를 다시 저장하면 기존 번호를 이어받는다.
+        if (reservation.getPmsReservationNo() == null) {
+            Reservation existing = store.get(reservation.getReservationId());
+            reservation.setPmsReservationNo(existing != null && existing.getPmsReservationNo() != null
+                    ? existing.getPmsReservationNo() : PmsReservationNumber.generate());
+        }
         store.put(reservation.getReservationId(), reservation);
     }
 
@@ -123,8 +130,12 @@ public class InMemoryReservationRepository implements ReservationRepository {
         Stream<Reservation> stream = store.values().stream();
 
         if (condition.reservationId() != null && !condition.reservationId().isBlank()) {
+            // PMS 예약 번호, 기존 예약 ID, OTA(채널) 예약번호 중 하나라도 맞으면 찾는다. DB 저장소와 같은 규칙이다.
             String idQuery = condition.reservationId().trim().toLowerCase();
-            stream = stream.filter(r -> r.getReservationId().toLowerCase().contains(idQuery));
+            stream = stream.filter(r -> r.getReservationId().toLowerCase().contains(idQuery)
+                    || (r.getPmsReservationNo() != null && r.getPmsReservationNo().toLowerCase().contains(idQuery))
+                    || (r.getChannelInfo() != null && r.getChannelInfo().channelReservationNo() != null
+                        && r.getChannelInfo().channelReservationNo().toLowerCase().contains(idQuery)));
         }
 
         if (condition.guestName() != null && !condition.guestName().isBlank()) {

@@ -1,6 +1,7 @@
 package com.hotel.repository.rdb;
 
 import com.hotel.domain.BookingChannelInfo;
+import com.hotel.domain.PmsReservationNumber;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.ReservationStatus;
 import com.hotel.entity.ReservationEntity;
@@ -43,28 +44,39 @@ public class JpaReservationRepository implements ReservationRepository {
     public void save(Reservation reservation) {
         Objects.requireNonNull(reservation, "저장할 예약 객체는 null일 수 없습니다.");
         ReservationEntity entity = ReservationEntity.fromDomain(reservation);
-        adoptExistingVersions(List.of(entity));
+        prepareForSave(List.of(entity));
         ReservationEntity saved = jpaRepo.saveAndFlush(entity);
         reservation.setVersion(saved.getVersion());
+        reservation.setPmsReservationNo(saved.getPmsReservationNo());
     }
 
     // 버전이 없는 객체(새로 만든 예약)를 이미 있는 ID로 저장하면 덮어쓰기로 처리한다. 채널 재전송이 이 경우다.
     // 버전이 없으면 JPA가 신규 행으로 보고 INSERT를 시도하므로 현재 DB의 버전을 이어받는다.
-    // DB에서 읽어 온 객체는 항상 버전을 들고 있어서 이 경로를 타지 않고, 동시 수정은 낙관적 락으로 걸러진다.
+    // 이때 PMS 예약 번호도 기존 행의 것을 이어받는다. 재전송으로 번호가 바뀌면 안 된다.
+    // DB에서 읽어 온 객체는 항상 버전과 번호를 들고 있어서 이 경로를 타지 않고, 동시 수정은 낙관적 락으로 걸러진다.
     // 복제 메서드(withTagPreference 등)가 버전을 빠뜨리면 이 경로로 빠져 락이 우회되므로 반드시 복사해야 한다.
-    private void adoptExistingVersions(Collection<ReservationEntity> entities) {
+    private void prepareForSave(Collection<ReservationEntity> entities) {
         Map<String, ReservationEntity> unversioned = new java.util.HashMap<>();
         for (ReservationEntity e : entities) {
             if (e.getVersion() == null) unversioned.putIfAbsent(e.getReservationId(), e);
         }
-        if (unversioned.isEmpty()) return;
 
-        // 건마다 조회하지 않고 한 번의 IN 조회로 기존 행의 버전을 가져온다.
-        for (ReservationEntity existing : jpaRepo.findAllById(unversioned.keySet())) {
-            for (ReservationEntity e : entities) {
-                if (e.getVersion() == null && e.getReservationId().equals(existing.getReservationId())) {
-                    e.setVersion(existing.getVersion());
+        if (!unversioned.isEmpty()) {
+            // 건마다 조회하지 않고 한 번의 IN 조회로 기존 행을 가져온다.
+            for (ReservationEntity existing : jpaRepo.findAllById(unversioned.keySet())) {
+                for (ReservationEntity e : entities) {
+                    if (e.getVersion() == null && e.getReservationId().equals(existing.getReservationId())) {
+                        e.setVersion(existing.getVersion());
+                        e.setPmsReservationNo(existing.getPmsReservationNo());
+                    }
                 }
+            }
+        }
+
+        // 새 예약이면 여기서 처음 번호를 발급한다.
+        for (ReservationEntity e : entities) {
+            if (e.getPmsReservationNo() == null) {
+                e.setPmsReservationNo(PmsReservationNumber.generate());
             }
         }
     }
@@ -77,10 +89,11 @@ public class JpaReservationRepository implements ReservationRepository {
         List<ReservationEntity> entities = domains.stream()
                 .map(ReservationEntity::fromDomain)
                 .toList();
-        adoptExistingVersions(entities);
+        prepareForSave(entities);
         List<ReservationEntity> saved = jpaRepo.saveAllAndFlush(entities);
         for (int i = 0; i < domains.size(); i++) {
             domains.get(i).setVersion(saved.get(i).getVersion());
+            domains.get(i).setPmsReservationNo(saved.get(i).getPmsReservationNo());
         }
     }
 
@@ -221,8 +234,13 @@ public class JpaReservationRepository implements ReservationRepository {
     private List<Predicate> buildPredicates(CriteriaBuilder cb, Root<ReservationEntity> root, ReservationSearchCondition condition) {
         List<Predicate> predicates = new ArrayList<>();
 
+        // 예약번호 검색은 PMS 예약 번호, 기존 예약 ID, OTA(채널) 예약번호 중 하나라도 맞으면 찾는다.
         if (condition.reservationId() != null && !condition.reservationId().isBlank()) {
-            predicates.add(cb.like(cb.lower(root.get("reservationId")), "%" + condition.reservationId().trim().toLowerCase() + "%"));
+            String like = "%" + condition.reservationId().trim().toLowerCase() + "%";
+            predicates.add(cb.or(
+                    cb.like(cb.lower(root.get("reservationId")), like),
+                    cb.like(cb.lower(root.get("pmsReservationNo")), like),
+                    cb.like(cb.lower(root.get("channelReservationNo")), like)));
         }
         if (condition.guestName() != null && !condition.guestName().isBlank()) {
             predicates.add(cb.like(cb.lower(root.get("operationalGuestName")), "%" + condition.guestName().trim().toLowerCase() + "%"));

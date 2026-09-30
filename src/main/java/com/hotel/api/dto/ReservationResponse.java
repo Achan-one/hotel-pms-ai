@@ -22,6 +22,7 @@ import java.util.List;
  */
 public record ReservationResponse(
         String reservationId,
+        String pmsReservationNo,
         String originalGuestName,
         RoomType bookedRoomType,
         LocalDate contractCheckInDate,
@@ -54,6 +55,7 @@ public record ReservationResponse(
     public static ReservationResponse from(Reservation r, boolean includeStaffMemo) {
         return new ReservationResponse(
                 r.getReservationId(),
+                r.getPmsReservationNo(),
                 r.getOriginalGuestName(),
                 r.getBookedRoomType(),
                 r.getContractCheckInDate(),

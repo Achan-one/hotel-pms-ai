@@ -13,6 +13,7 @@ import com.hotel.repository.StaffRepository;
 import com.hotel.service.AuthService;
 import com.hotel.service.ReservationService;
 import com.hotel.service.dto.RoomChangeRequest;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -83,6 +84,8 @@ class MySqlSchemaAndConcurrencyIT {
     private AuthService authService;
     @Autowired
     private StaffRepository staffRepository;
+    @Autowired
+    private com.hotel.repository.ReservationRepository reservationRepository;
 
     @AfterEach
     void cleanUp() {
@@ -94,13 +97,13 @@ class MySqlSchemaAndConcurrencyIT {
     }
 
     @Test
-    @DisplayName("V1~V6 마이그레이션이 모두 성공하고 엔티티 검증(validate)을 통과한다")
+    @DisplayName("V1~V7 마이그레이션이 모두 성공하고 엔티티 검증(validate)을 통과한다")
     void migrationsApplyAndSchemaValidates() {
         // 컨텍스트가 뜬 것 자체가 ddl-auto=validate 통과를 뜻한다.
         Integer applied = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IN ('1', '2', '3', '4', '5', '6')",
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IN ('1', '2', '3', '4', '5', '6', '7')",
                 Integer.class);
-        assertEquals(6, applied);
+        assertEquals(7, applied);
     }
 
     @Test
@@ -243,5 +246,76 @@ class MySqlSchemaAndConcurrencyIT {
                 return false;
             }
         };
+    }
+
+    @Test
+    @DisplayName("V7 마이그레이션: 기존 예약에 PMS 번호가 채워지고 중복 번호는 유니크 제약이 막는다")
+    void pmsReservationNoIsBackfilledAndUnique() {
+        // V7은 이미 적용된 상태다. 번호 없이 넣으면 NOT NULL로 거절되는지, 같은 번호는 유니크로 거절되는지 확인한다.
+        String columnNullable = jdbc.queryForObject(
+                "SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                        + "AND TABLE_NAME = 'reservations' AND COLUMN_NAME = 'pms_reservation_no'", String.class);
+        assertEquals("NO", columnNullable);
+
+        Integer uniqueIndexes = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
+                        + "AND TABLE_NAME = 'reservations' AND COLUMN_NAME = 'pms_reservation_no' AND NON_UNIQUE = 0", Integer.class);
+        assertEquals(1, uniqueIndexes);
+    }
+
+    @Test
+    @DisplayName("PMS 예약 번호가 실제 MySQL에서 발급되고 재저장해도 유지된다")
+    void pmsReservationNoIsIssuedOnRealMySql() {
+        Reservation r = new Reservation("IT-PMSNO-1", "Kim", RoomType.SUPERIOR_TWIN, FAR_FUTURE, 1, null, GuestPreference.empty());
+        reservationRepository.save(r);
+        String issued = r.getPmsReservationNo();
+        assertTrue(issued != null && issued.startsWith("PMS-"));
+
+        reservationRepository.save(new Reservation("IT-PMSNO-1", "Kim (재전송)", RoomType.SUPERIOR_TWIN, FAR_FUTURE, 1, null, GuestPreference.empty()));
+
+        String stored = jdbc.queryForObject("SELECT pms_reservation_no FROM reservations WHERE reservation_id = 'IT-PMSNO-1'", String.class);
+        assertEquals(issued, stored);
+    }
+
+    @Test
+    @DisplayName("V6 상태의 DB에 이미 예약이 있어도 V7이 모든 행에 서로 다른 PMS 번호를 채운다")
+    void v7BackfillsExistingReservations() throws Exception {
+        // 컨테이너에 마이그레이션 검증용 별도 DB를 만든다. 이미 V7까지 적용된 본 DB와 섞이지 않는다.
+        String url = "jdbc:mysql://" + mysql.getHost() + ":" + mysql.getFirstMappedPort()
+                + "/migtest?useSSL=false&allowPublicKeyRetrieval=true";
+        try (java.sql.Connection root = java.sql.DriverManager.getConnection(
+                "jdbc:mysql://" + mysql.getHost() + ":" + mysql.getFirstMappedPort() + "/?useSSL=false&allowPublicKeyRetrieval=true",
+                "root", mysql.getPassword());
+             java.sql.Statement st = root.createStatement()) {
+            st.execute("DROP DATABASE IF EXISTS migtest");
+            st.execute("CREATE DATABASE migtest");
+        }
+
+        Flyway.configure().dataSource(url, "root", mysql.getPassword())
+                .locations("classpath:db/migration").target("6").load().migrate();
+
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(url, "root", mysql.getPassword());
+             java.sql.Statement st = conn.createStatement()) {
+            for (int i = 1; i <= 3; i++) {
+                st.execute("INSERT INTO reservations (reservation_id, original_guest_name, booked_room_type, "
+                        + "contract_check_in_date, contract_stay_nights, status) "
+                        + "VALUES ('LEGACY-" + i + "', 'Guest', 'SUPERIOR_TWIN', '2026-09-20', 2, 'PENDING')");
+            }
+        }
+
+        Flyway.configure().dataSource(url, "root", mysql.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(url, "root", mysql.getPassword());
+             java.sql.Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery("SELECT pms_reservation_no FROM reservations ORDER BY reservation_id")) {
+            java.util.Set<String> numbers = new java.util.HashSet<>();
+            while (rs.next()) {
+                String number = rs.getString(1);
+                assertTrue(number.matches("PMS-\\d{6}-[0-9A-F]{8}"), "백필된 번호 형식: " + number);
+                numbers.add(number);
+            }
+            assertEquals(3, numbers.size(), "기존 예약마다 서로 다른 번호가 채워져야 한다");
+        }
     }
 }
