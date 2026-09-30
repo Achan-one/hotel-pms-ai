@@ -8,7 +8,6 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -57,11 +56,8 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
-                // 1. REST API는 CSRF 비활성화하되, H2 콘솔 자체 폼 요청 또한 차단되지 않도록 방어
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**").disable())
-
-                // 2. H2 웹 콘솔의 iframe 프레임 렌더링 허용 (SAMEORIGIN)
-                .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin))
+                // 세션과 쿠키를 쓰지 않는 JWT API라 CSRF는 끈다.
+                .csrf(AbstractHttpConfigurer::disable)
 
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -73,13 +69,14 @@ public class SecurityConfig {
                         // 0. CORS Preflight (OPTIONS) 사전 검사는 인증 없이 무조건 허용
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // 1. H2 콘솔 및 인증 공개 엔드포인트
-                        .requestMatchers("/h2-console/**").permitAll()
+                        // 1. 인증 공개 엔드포인트
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/admin/staff").hasAuthority("ROLE_ADMIN")
 
-                        // 2. 시스템 인프라 및 나이트오딧 사전 점검/롤오버 (프론트 상시 연동을 위해 전체 허용)
-                        .requestMatchers("/api/system/**").permitAll()
+                        // 2. 시스템 API. 영업일 조회는 로그인한 직원 모두, 보정은 관리자, 그 외는 관리자와 직원.
+                        .requestMatchers(HttpMethod.GET, "/api/system/business-date").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/system/business-date").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers("/api/system/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 3. 동적 태그 관리
                         .requestMatchers("/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")

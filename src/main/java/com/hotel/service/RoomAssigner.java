@@ -107,14 +107,24 @@ public class RoomAssigner {
                 .toList();
 
         for (Room candidate : sortedCandidates) {
-            if (candidate.tryBookPeriod(targetPeriod)) {
-                reservation.assignRoom(candidate.getRoomNumber());
-                roomRepository.save(candidate); // 중요(방 중복 방지)
-                return Optional.of(candidate);
+            Optional<Room> booked = tryAssignWithLock(reservation, candidate.getRoomNumber(), targetPeriod);
+            if (booked.isPresent()) {
+                return booked;
             }
         }
 
         return Optional.empty();
+    }
+
+    // findAll 스냅샷은 낡았을 수 있다. 방 행 락을 잡고 최신 스케줄로 다시 확인한 뒤 확정한다.
+    private Optional<Room> tryAssignWithLock(Reservation reservation, String roomNumber, StayPeriod period) {
+        Room locked = roomRepository.findByRoomNumberForUpdate(roomNumber).orElse(null);
+        if (locked == null || !locked.tryBookPeriod(period)) {
+            return Optional.empty();
+        }
+        reservation.assignRoom(locked.getRoomNumber());
+        roomRepository.save(locked);
+        return Optional.of(locked);
     }
 
     public long calculateMinDailyVacant(RoomType type, LocalDate checkIn, int nights) {

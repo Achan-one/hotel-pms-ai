@@ -7,6 +7,10 @@ plugins {
 group = "com.hotel"
 version = "1.0-SNAPSHOT"
 
+// Boot 3.3.4가 관리하는 Testcontainers 1.19.x는 최신 Docker Desktop 엔진에 붙지 못한다(400 응답).
+// 통합 테스트가 돌아가도록 버전만 올린다.
+extra["testcontainers.version"] = "1.21.4"
+
 java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
@@ -44,8 +48,21 @@ dependencies {
     testImplementation("org.springframework.security:spring-security-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("com.h2database:h2")
+
+    // 7. 실제 MySQL(InnoDB)로 마이그레이션과 락 동작을 확인하는 통합 테스트 (Docker 필요)
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:mysql")
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
+
+    // Docker Desktop(macOS)은 소켓이 /var/run/docker.sock이 아니라 홈 디렉터리 아래에 있다.
+    // Testcontainers가 못 찾으면 통합 테스트가 조용히 건너뛰어지므로 위치를 알려준다.
+    val desktopSocket = file("${System.getProperty("user.home")}/.docker/run/docker.sock")
+    if (System.getenv("DOCKER_HOST") == null && desktopSocket.exists()) {
+        environment("DOCKER_HOST", "unix://${desktopSocket.absolutePath}")
+        environment("TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", "/var/run/docker.sock")
+    }
 }
