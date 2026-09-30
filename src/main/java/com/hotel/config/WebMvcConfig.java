@@ -20,7 +20,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new BatchLockInterceptor(guard, objectMapper))
-                .addPathPatterns("/api/reservations/**", "/api/system/rollover-unchecked-arrivals")
+                // 개발용 시뮬레이션 API(전체 초기화, 대량 적재 등)도 일괄 작업 중에는 막는다. 운영에는 등록되지 않는 경로다.
+                .addPathPatterns("/api/reservations/**", "/api/system/rollover-unchecked-arrivals", "/api/simulation/**")
                 // 편집 락 조회/해제는 일괄 작업 중에도 동작해야 화면이 읽기 전용으로 전환된다.
                 .excludePathPatterns("/api/reservations/*/lock");
     }
