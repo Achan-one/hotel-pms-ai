@@ -1,5 +1,7 @@
 package com.hotel.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collections;
@@ -38,6 +40,9 @@ public class Reservation {
 
     // 일자별 1박 단가 스케줄 (나이트 오딧 동적 룸차지 포스팅 기준)
     private DailyRateSchedule dailyRateSchedule;
+
+    // 낙관적 락용 버전. DB에서 읽어온 값을 그대로 들고 다니다가 저장 때 되돌려준다.
+    private Long version;
 
     // 모든 필드를 받는 기본 생성자
     public Reservation(String reservationId,
@@ -264,6 +269,7 @@ public class Reservation {
         clone.previousRoomNumber = this.previousRoomNumber;
         clone.status = this.status;
         clone.dailyRateSchedule = this.dailyRateSchedule;
+        clone.version = this.version;
         return clone;
     }
 
@@ -284,4 +290,9 @@ public class Reservation {
         clone.dailyRateSchedule = this.dailyRateSchedule;
         return clone;
     }
+
+    @JsonIgnore
+    public Long getVersion() { return version; }
+
+    public void setVersion(Long version) { this.version = version; }
 }

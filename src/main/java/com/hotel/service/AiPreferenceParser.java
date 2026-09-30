@@ -10,6 +10,8 @@ import com.hotel.repository.TagRepository;
 import com.hotel.repository.memory.InMemoryTagRepository;
 import com.hotel.service.dto.GeminiBatchTagDto;
 import com.hotel.util.EnvLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -23,6 +25,8 @@ import java.util.Map;
 import java.util.Objects;
 
 public class AiPreferenceParser {
+
+    private static final Logger log = LoggerFactory.getLogger(AiPreferenceParser.class);
 
     private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
@@ -67,17 +71,18 @@ public class AiPreferenceParser {
         }
 
         if (apiKey == null || apiKey.isBlank()) {
-            System.err.println("[AiPreferenceParser] API 키가 없어 빈 태그 선호도를 반환합니다.");
+            log.warn("Gemini API 키가 없어 빈 태그 선호도를 반환합니다.");
             return TagPreference.empty();
         }
 
         try {
-            String endpoint = BASE_URL + config.getModelName() + ":generateContent?key=" + apiKey;
+            String endpoint = BASE_URL + config.getModelName() + ":generateContent";
             String requestPayload = buildPromptPayload(requestText.trim());
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint))
                     .header("Content-Type", "application/json")
+                    .header("x-goog-api-key", apiKey)
                     .timeout(Duration.ofSeconds(15))
                     .POST(HttpRequest.BodyPublishers.ofString(requestPayload))
                     .build();
@@ -85,14 +90,14 @@ public class AiPreferenceParser {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                System.err.println("[AiPreferenceParser] API 오류 (" + response.statusCode() + "): " + response.body());
+                log.warn("Gemini API 오류 status={}", response.statusCode());
                 return TagPreference.empty();
             }
 
             return extractSingleTagPreferenceFromJson(response.body());
 
         } catch (Exception e) {
-            System.err.println("[AiPreferenceParser] 단일 파싱 예외 발생: " + e.getMessage());
+            log.warn("Gemini 단일 파싱 실패", e);
             return TagPreference.empty();
         }
     }
@@ -105,17 +110,18 @@ public class AiPreferenceParser {
         }
 
         if (apiKey == null || apiKey.isBlank()) {
-            System.err.println("[AiPreferenceParser] API 키가 없어 빈 맵을 반환합니다.");
+            log.warn("Gemini API 키가 없어 빈 결과를 반환합니다.");
             return resultMap;
         }
 
         try {
-            String endpoint = BASE_URL + config.getModelName() + ":generateContent?key=" + apiKey;
+            String endpoint = BASE_URL + config.getModelName() + ":generateContent";
             String requestPayload = buildBatchPromptPayload(reservations);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint))
                     .header("Content-Type", "application/json")
+                    .header("x-goog-api-key", apiKey)
                     .timeout(Duration.ofSeconds(45))
                     .POST(HttpRequest.BodyPublishers.ofString(requestPayload))
                     .build();
@@ -123,14 +129,14 @@ public class AiPreferenceParser {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                System.err.println("[AiPreferenceParser] 일괄 파싱 API 오류 (" + response.statusCode() + "): " + response.body());
+                log.warn("Gemini 일괄 파싱 API 오류 status={}", response.statusCode());
                 return resultMap;
             }
 
             return extractBatchTagPreferencesFromJson(response.body());
 
         } catch (Exception e) {
-            System.err.println("[AiPreferenceParser] 일괄 파싱 중 예외 발생: " + e.getMessage());
+            log.warn("Gemini 일괄 파싱 실패", e);
             return resultMap;
         }
     }

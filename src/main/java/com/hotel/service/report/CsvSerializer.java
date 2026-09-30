@@ -77,6 +77,10 @@ public final class CsvSerializer {
         }
 
         String text = String.valueOf(value);
+        if (value instanceof CharSequence && startsWithFormulaTrigger(text)) {
+            // 엑셀이 수식으로 해석하지 못하도록 앞에 작은따옴표를 붙인다.
+            text = "'" + text;
+        }
         boolean containsSpecialChar = text.contains(",") || text.contains("\"")
                 || text.contains("\n") || text.contains("\r");
 
@@ -86,5 +90,13 @@ public final class CsvSerializer {
 
         // 큰따옴표(")는 2개("")로 치환하고 필드 전체를 큰따옴표로 감쌈
         return "\"" + text.replace("\"", "\"\"") + "\"";
+    }
+
+    private static boolean startsWithFormulaTrigger(String text) {
+        if (text.isEmpty()) {
+            return false;
+        }
+        char first = text.charAt(0);
+        return first == '=' || first == '+' || first == '-' || first == '@' || first == '\t' || first == '\r';
     }
 }

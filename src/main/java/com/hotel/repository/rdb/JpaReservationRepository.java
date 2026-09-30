@@ -40,17 +40,34 @@ public class JpaReservationRepository implements ReservationRepository {
     @Transactional
     public void save(Reservation reservation) {
         Objects.requireNonNull(reservation, "저장할 예약 객체는 null일 수 없습니다.");
-        jpaRepo.save(ReservationEntity.fromDomain(reservation));
+        ReservationEntity entity = ReservationEntity.fromDomain(reservation);
+        adoptExistingVersion(entity);
+        ReservationEntity saved = jpaRepo.saveAndFlush(entity);
+        reservation.setVersion(saved.getVersion());
+    }
+
+    // 새로 만든 도메인 객체를 기존 ID로 다시 저장하는 경우(채널 재전송 등)는 덮어쓰기로 처리한다.
+    // 버전이 없으면 JPA가 신규 행으로 보고 INSERT를 시도하므로 현재 DB의 버전을 이어받는다.
+    private void adoptExistingVersion(ReservationEntity entity) {
+        if (entity.getVersion() == null) {
+            jpaRepo.findById(entity.getReservationId())
+                    .ifPresent(existing -> entity.setVersion(existing.getVersion()));
+        }
     }
 
     @Override
     @Transactional
     public void saveAll(Collection<Reservation> reservations) {
         if (reservations == null || reservations.isEmpty()) return;
-        List<ReservationEntity> entities = reservations.stream()
+        List<Reservation> domains = List.copyOf(reservations);
+        List<ReservationEntity> entities = domains.stream()
                 .map(ReservationEntity::fromDomain)
                 .toList();
-        jpaRepo.saveAll(entities);
+        entities.forEach(this::adoptExistingVersion);
+        List<ReservationEntity> saved = jpaRepo.saveAllAndFlush(entities);
+        for (int i = 0; i < domains.size(); i++) {
+            domains.get(i).setVersion(saved.get(i).getVersion());
+        }
     }
 
     @Override
@@ -201,8 +218,5 @@ public class JpaReservationRepository implements ReservationRepository {
     @Transactional
     public void clear() {
         jpaRepo.deleteAll();
-    }
-
-    public static class JpaCityLedgerRepository {
     }
 }

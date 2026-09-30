@@ -16,8 +16,9 @@ public class EnvLoader {
 
     /**
      * 지정한 키에 해당하는 환경 변수 값을 반환합니다.
-     * 1순위: 프로젝트 루트의 .env 파일
-     * 2순위: OS 환경 변수 (System.getenv)
+     * 1순위: OS 환경 변수 (System.getenv)
+     * 2순위: 프로젝트 루트의 .env 파일
+     * Spring의 spring.config.import 우선순위와 같게 맞춘 것이다.
      *
      * @param keyName 조회할 키 이름 (예: "GEMINI_API_KEY")
      * @return 키에 매핑된 값 또는 찾지 못했을 경우 null
@@ -27,12 +28,12 @@ public class EnvLoader {
             return null;
         }
 
-        String fileValue = loadFromDotEnv(keyName);
-        if (fileValue != null && !fileValue.isBlank()) {
-            return fileValue;
+        String envValue = System.getenv(keyName);
+        if (envValue != null && !envValue.isBlank()) {
+            return envValue;
         }
 
-        return System.getenv(keyName);
+        return loadFromDotEnv(keyName);
     }
 
     private static String loadFromDotEnv(String keyName) {

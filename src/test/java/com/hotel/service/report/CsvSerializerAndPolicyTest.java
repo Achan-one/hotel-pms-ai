@@ -67,4 +67,14 @@ class CsvSerializerAndPolicyTest {
         assertThrows(IllegalArgumentException.class, () ->
                 ReportPolicy.validateExportCondition(invalidCondition));
     }
+
+    @Test
+    @DisplayName("[CSV 직렬화] 수식 문자로 시작하는 문자열은 앞에 작은따옴표를 붙이고, 음수 숫자는 그대로 둔다")
+    void serialize_NeutralizesFormulaInjection() {
+        assertEquals("'=SUM(A1:A2)", CsvSerializer.escapeCsvField("=SUM(A1:A2)"));
+        assertEquals("'+81-90", CsvSerializer.escapeCsvField("+81-90"));
+        assertEquals("'@cmd", CsvSerializer.escapeCsvField("@cmd"));
+        assertEquals("-5000", CsvSerializer.escapeCsvField(-5000L));
+        assertEquals("Tanaka", CsvSerializer.escapeCsvField("Tanaka"));
+    }
 }

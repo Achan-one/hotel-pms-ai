@@ -161,6 +161,20 @@ public class Room {
         }
     }
 
+    /**
+     * 상태 전이 규칙을 무시하고 공실로 되돌린다. 시뮬레이션 초기화처럼 운영 데이터를 통째로 리셋할 때만 쓴다.
+     */
+    public void forceVacant() {
+        lock.lock();
+        try {
+            this.assigned = false;
+            this.bookedPeriods.clear();
+            this.status = RoomStatus.VACANT;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public boolean cancelPeriod(StayPeriod period) {
         lock.lock();
         try {

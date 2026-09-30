@@ -4,6 +4,7 @@ import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.RoomType;
 import com.hotel.repository.ReservationRepository;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+@Profile("dev")
 @Service
 @Transactional
 public class TestDataGeneratorService {

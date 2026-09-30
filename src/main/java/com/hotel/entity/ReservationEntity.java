@@ -32,6 +32,10 @@ public class ReservationEntity {
     @Column(name = "reservation_id", length = 50)
     private String reservationId;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     @Column(name = "original_guest_name", nullable = false, length = 100)
     private String originalGuestName;
 
@@ -132,6 +136,7 @@ public class ReservationEntity {
     public static ReservationEntity fromDomain(Reservation domain) {
         ReservationEntity entity = new ReservationEntity();
         entity.reservationId = domain.getReservationId();
+        entity.version = domain.getVersion();
         entity.originalGuestName = domain.getOriginalGuestName();
         entity.bookedRoomType = domain.getBookedRoomType();
         entity.contractCheckInDate = domain.getContractCheckInDate();
@@ -248,6 +253,7 @@ public class ReservationEntity {
                 this.estimatedArrivalTime
         );
 
+        domain.setVersion(this.version);
         domain.updateOperationalDetails(
                 this.operationalGuestName,
                 this.operationalCheckInDate,
@@ -296,6 +302,8 @@ public class ReservationEntity {
     }
 
     public String getReservationId() { return reservationId; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
     public String getOriginalGuestName() { return originalGuestName; }
     public RoomType getBookedRoomType() { return bookedRoomType; }
     public LocalDate getContractCheckInDate() { return contractCheckInDate; }

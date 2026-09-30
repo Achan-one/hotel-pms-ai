@@ -79,8 +79,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/system/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 3. 동적 태그 관리
-                        .requestMatchers("/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
-                        .requestMatchers("/api/admin/tags").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers("/api/admin/tags", "/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 4. 룸 인디케이터
                         .requestMatchers(HttpMethod.GET, "/api/rooms/indicator").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
@@ -99,7 +98,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/reports/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 7. 시뮬레이터 및 나이트 오딧 실행
-                        .requestMatchers("/api/simulation/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        // 시뮬레이션과 테스트 데이터 API는 dev 프로필에서만 존재하고, 데이터를 지우므로 관리자만 쓴다.
+                        .requestMatchers("/api/simulation/**").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/generate-test-data").hasAuthority("ROLE_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/night-audit").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 8. 체크인/체크아웃 및 원장(Folio) 수납/청구 거래 분개

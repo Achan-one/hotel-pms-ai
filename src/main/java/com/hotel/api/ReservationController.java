@@ -7,7 +7,7 @@ import com.hotel.domain.Reservation;
 import com.hotel.service.BatchAssignmentResult;
 import com.hotel.service.NightAuditService;
 import com.hotel.service.ReservationService;
-import com.hotel.service.TestDataGeneratorService;
+import com.hotel.service.HotelOperationService;
 import com.hotel.service.dto.NightAuditResult;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
@@ -25,14 +25,14 @@ public class ReservationController {
 
     private final ReservationService reservationService;
     private final NightAuditService nightAuditService;
-    private final TestDataGeneratorService testDataGeneratorService;
+    private final HotelOperationService hotelOperationService;
 
     public ReservationController(ReservationService reservationService,
                                  NightAuditService nightAuditService,
-                                 TestDataGeneratorService testDataGeneratorService) {
+                                 HotelOperationService hotelOperationService) {
         this.reservationService = reservationService;
         this.nightAuditService = nightAuditService;
-        this.testDataGeneratorService = testDataGeneratorService;
+        this.hotelOperationService = hotelOperationService;
     }
 
     public record TagOverrideApiRequest(
@@ -98,15 +98,11 @@ public class ReservationController {
     public ResponseEntity<ApiResponse<Void>> updateOperationalTags(
             @PathVariable String reservationId,
             @RequestBody TagOverrideApiRequest request) {
-        try {
-            Set<String> pref = request.preferredTags() != null ? request.preferredTags() : Set.of();
-            Set<String> avoid = request.avoidTags() != null ? request.avoidTags() : Set.of();
+        Set<String> pref = request.preferredTags() != null ? request.preferredTags() : Set.of();
+        Set<String> avoid = request.avoidTags() != null ? request.avoidTags() : Set.of();
 
-            reservationService.updateOperationalTags(reservationId, pref, avoid);
-            return ResponseEntity.ok(ApiResponse.ok("현장 운영 태그가 갱신되었습니다. 원본 예약 메모는 보존됩니다.", null));
-        } catch (NoSuchElementException e) {
-            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
-        }
+        reservationService.updateOperationalTags(reservationId, pref, avoid);
+        return ResponseEntity.ok(ApiResponse.ok("현장 운영 태그가 갱신되었습니다. 원본 예약 메모는 보존됩니다.", null));
     }
 
     @GetMapping
@@ -166,96 +162,67 @@ public class ReservationController {
 
         String normalizedRoomNumber = normalizeRoomNumber(targetRoomNumber);
 
-        try {
-            reservationService.manualAssignRoom(reservationId, normalizedRoomNumber);
-            return ResponseEntity.ok(ApiResponse.ok("객실 배정이 완료되었습니다.", null));
-        } catch (IllegalStateException | IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
-        }
+        reservationService.manualAssignRoom(reservationId, normalizedRoomNumber);
+        return ResponseEntity.ok(ApiResponse.ok("객실 배정이 완료되었습니다.", null));
     }
 
     @DeleteMapping("/{reservationId}/assign")
     public ResponseEntity<ApiResponse<Void>> unassignRoom(@PathVariable String reservationId) {
-        try {
-            reservationService.cancelRoomAssignment(reservationId);
-            return ResponseEntity.ok(ApiResponse.ok("객실 배정이 취소되고 미배정 상태로 환원되었습니다.", null));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
-        } catch (NoSuchElementException e) {
-            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
-        }
+        reservationService.cancelRoomAssignment(reservationId);
+        return ResponseEntity.ok(ApiResponse.ok("객실 배정이 취소되고 미배정 상태로 환원되었습니다.", null));
     }
 
     @PatchMapping("/{reservationId}/operational-override")
     public ResponseEntity<ApiResponse<Void>> updateOperationalOverride(
             @PathVariable String reservationId,
             @RequestBody Map<String, Object> body) {
-        try {
-            String guestName = (String) body.get("operationalGuestName");
-            if (guestName == null || guestName.isBlank()) {
-                guestName = (String) body.get("guestName");
-            }
-
-            String checkInStr = (String) body.get("operationalCheckInDate");
-            LocalDate checkIn = (checkInStr != null && !checkInStr.isBlank()) ? LocalDate.parse(checkInStr) : null;
-
-            Integer nights = null;
-            Object nightsObj = body.get("operationalStayNights");
-            if (nightsObj != null && !nightsObj.toString().isBlank()) {
-                nights = Integer.valueOf(nightsObj.toString());
-            }
-
-            String memo = (String) body.get("internalStaffMemo");
-            if (memo == null) {
-                memo = (String) body.get("rawRequestText");
-            }
-
-            reservationService.updateOperationalDetails(reservationId, guestName, checkIn, nights, memo);
-            return ResponseEntity.ok(ApiResponse.ok("PMS 현장 운영 정보가 반영되었습니다.", null));
-        } catch (NoSuchElementException e) {
-            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail("운영 정보 수정 실패: " + e.getMessage()));
+        String guestName = text(body, "operationalGuestName");
+        if (guestName == null || guestName.isBlank()) {
+            guestName = text(body, "guestName");
         }
+
+        String checkInStr = text(body, "operationalCheckInDate");
+        LocalDate checkIn = (checkInStr != null && !checkInStr.isBlank()) ? LocalDate.parse(checkInStr) : null;
+
+        String nightsStr = text(body, "operationalStayNights");
+        Integer nights = (nightsStr != null && !nightsStr.isBlank()) ? Integer.valueOf(nightsStr.trim()) : null;
+
+        String memo = text(body, "internalStaffMemo");
+        if (memo == null) {
+            memo = text(body, "rawRequestText");
+        }
+
+        reservationService.updateOperationalDetails(reservationId, guestName, checkIn, nights, memo);
+        return ResponseEntity.ok(ApiResponse.ok("PMS 현장 운영 정보가 반영되었습니다.", null));
     }
 
     @PostMapping("/{reservationId}/check-in")
     public ResponseEntity<ApiResponse<Void>> checkIn(
             @PathVariable String reservationId) {
-        try {
-            reservationService.processCheckIn(reservationId);
-            return ResponseEntity.ok(ApiResponse.ok("체크인이 완료되었습니다.", null));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
-        } catch (NoSuchElementException e) {
-            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
-        }
+        reservationService.processCheckIn(reservationId);
+        return ResponseEntity.ok(ApiResponse.ok("체크인이 완료되었습니다.", null));
     }
 
     @PostMapping("/{reservationId}/room-change")
     public ResponseEntity<ApiResponse<RoomChangeResult>> roomChange(
             @PathVariable String reservationId,
             @Valid @RequestBody RoomChangeApiRequest request) {
-        try {
-            LocalDate moveDate = (request.moveDate() != null) ? request.moveDate() : LocalDate.now();
-            String reason = (request.reason() != null && !request.reason().isBlank()) ? request.reason() : "프론트 현장 요청";
-            String targetRoomNumber = normalizeRoomNumber(request.targetRoomNumber());
+        LocalDate moveDate = (request.moveDate() != null) ? request.moveDate() : hotelOperationService.getCurrentBusinessDate();
+        String reason = (request.reason() != null && !request.reason().isBlank()) ? request.reason() : "프론트 현장 요청";
+        String targetRoomNumber = normalizeRoomNumber(request.targetRoomNumber());
 
-            RoomChangeRequest domainRequest = new RoomChangeRequest(
-                    reservationId,
-                    targetRoomNumber,
-                    moveDate,
-                    reason
-            );
+        RoomChangeRequest domainRequest = new RoomChangeRequest(
+                reservationId,
+                targetRoomNumber,
+                moveDate,
+                reason
+        );
 
-            RoomChangeResult result = reservationService.processRoomChange(domainRequest);
-            if (result.success()) {
-                return ResponseEntity.ok(ApiResponse.ok("룸 체인지가 완료되었습니다.", result));
-            } else {
-                return ResponseEntity.badRequest().body(ApiResponse.fail(result.message()));
-            }
-        } catch (NoSuchElementException e) {
-            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
+        RoomChangeResult result = reservationService.processRoomChange(domainRequest);
+        if (result.success()) {
+            return ResponseEntity.ok(ApiResponse.ok("룸 체인지가 완료되었습니다.", result));
+        } else {
+            return ResponseEntity.badRequest().body(ApiResponse.fail(result.message()));
         }
     }
 
@@ -263,34 +230,22 @@ public class ReservationController {
     public ResponseEntity<ApiResponse<Void>> checkOut(
             @PathVariable String reservationId,
             @RequestParam(required = false) LocalDate checkOutDate) {
-        try {
-            LocalDate effectiveDate = (checkOutDate != null) ? checkOutDate : LocalDate.now();
-            reservationService.processCheckOut(reservationId, effectiveDate);
-            return ResponseEntity.ok(ApiResponse.ok("퇴실 처리가 완료되었습니다.", null));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
-        } catch (NoSuchElementException e) {
-            return ResponseEntity.status(404).body(ApiResponse.fail(e.getMessage()));
-        }
+        LocalDate effectiveDate = (checkOutDate != null) ? checkOutDate : hotelOperationService.getCurrentBusinessDate();
+        reservationService.processCheckOut(reservationId, effectiveDate);
+        return ResponseEntity.ok(ApiResponse.ok("퇴실 처리가 완료되었습니다.", null));
     }
 
     @PostMapping("/night-audit")
     public ResponseEntity<ApiResponse<NightAuditResult>> runNightAudit(
             @RequestParam(required = false) LocalDate targetDate) {
-        LocalDate effectiveDate = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate effectiveDate = (targetDate != null) ? targetDate : hotelOperationService.getCurrentBusinessDate();
         NightAuditResult result = nightAuditService.runNightAudit(effectiveDate);
         return ResponseEntity.ok(ApiResponse.ok(result.message(), result));
     }
 
-    @PostMapping("/generate-test-data")
-    public ResponseEntity<ApiResponse<String>> generateTestData(
-            @RequestParam(required = false) LocalDate baseDate) {
-        LocalDate target = (baseDate != null) ? baseDate : LocalDate.now();
-        testDataGeneratorService.generate50DynamicReservations(target);
-        return ResponseEntity.ok(ApiResponse.ok(
-                String.format("%s 기준 50건의 고유 실명 및 OTA 예약이 생성되고 배정되었습니다.", target),
-                null
-        ));
+    private static String text(Map<String, Object> body, String key) {
+        Object value = body.get(key);
+        return value == null ? null : value.toString();
     }
 
     private String normalizeRoomNumber(String input) {

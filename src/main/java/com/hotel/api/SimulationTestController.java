@@ -8,6 +8,7 @@ import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
 import com.hotel.service.HotelOperationService;
 import com.hotel.service.ReservationService;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+// 예약 전체 삭제 같은 파괴적 API가 있어 dev 프로필에서만 등록한다.
+@Profile("dev")
 @RestController
 @RequestMapping("/api/simulation")
 public class SimulationTestController {
@@ -224,11 +227,7 @@ public class SimulationTestController {
 
         for (Room room : roomRepository.findAll()) {
             room.release();
-            try {
-                java.lang.reflect.Field statusField = Room.class.getDeclaredField("status");
-                statusField.setAccessible(true);
-                statusField.set(room, RoomStatus.VACANT);
-            } catch (Exception ignored) {}
+            room.forceVacant();
             roomRepository.save(room);
         }
 
@@ -267,11 +266,7 @@ public class SimulationTestController {
                     room.removeTag(tagCode);
                 }
             }
-            try {
-                java.lang.reflect.Field statusField = Room.class.getDeclaredField("status");
-                statusField.setAccessible(true);
-                statusField.set(room, RoomStatus.VACANT);
-            } catch (Exception ignored) {}
+            room.forceVacant();
             roomRepository.save(room);
         }
 

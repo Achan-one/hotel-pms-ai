@@ -9,11 +9,12 @@ public class PaymentLedger {
     private final PaymentType paymentType;
     private final List<FolioTransaction> transactions = new ArrayList<>();
 
-    // 사전 청구 강제 생성을 없앰 (체크인 전에는 원장이 0원이어야 정상)
+    // 체크인 전에는 원장이 0원이어야 하므로 객실료 인자는 쓰지 않는다. 청구는 나이트 오딧이 포스팅한다.
     public PaymentLedger(PaymentType paymentType, long roomRateTotal) {
         this.paymentType = paymentType != null ? paymentType : PaymentType.PAY_ON_ARRIVAL;
     }
 
+    // 금액은 거래 내역에서만 계산한다. 인자는 기존 호출부와의 호환용이다.
     public PaymentLedger(PaymentType paymentType, long totalCharges, long totalPayments) {
         this.paymentType = paymentType != null ? paymentType : PaymentType.PAY_ON_ARRIVAL;
     }

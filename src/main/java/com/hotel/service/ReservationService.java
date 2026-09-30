@@ -122,29 +122,23 @@ public class ReservationService {
 
         BatchAssignmentResult result = batchAssigner.assignAll(enrichedList);
 
+        // 하나라도 반영에 실패하면 예외를 그대로 올려 트랜잭션 전체를 되돌린다.
+        // 예외를 잡고 이어가면 롤백 전용으로 표시된 트랜잭션에서 부분 반영이 남을 수 있다.
         for (Reservation success : result.getSuccessfulAssignments()) {
-            try {
-                String roomNumber = success.getAssignedRoomNumber();
-                if (roomNumber != null) {
-                    roomRepository.findByRoomNumberForUpdate(roomNumber).ifPresent(room -> {
-                        StayPeriod period = new StayPeriod(success.getCheckInDate(), success.getStayNights());
-                        room.tryBookPeriod(period);
-                        roomRepository.save(room);
-                    });
-                }
-                reservationRepository.save(success);
-            } catch (Exception e) {
-                log.error("일괄 배정 결과 반영 실패, 보정 취소 진행 reservationId={}", success.getReservationId(), e);
-                String roomNumber = success.getAssignedRoomNumber();
+            String roomNumber = success.getAssignedRoomNumber();
+            if (roomNumber != null) {
+                Room room = roomRepository.findByRoomNumberForUpdate(roomNumber)
+                        .orElseThrow(() -> new IllegalStateException("배정된 객실을 찾을 수 없습니다: " + roomNumber));
                 StayPeriod period = new StayPeriod(success.getCheckInDate(), success.getStayNights());
-                if (roomNumber != null) {
-                    roomRepository.findByRoomNumber(roomNumber).ifPresent(r -> {
-                        r.cancelPeriod(period);
-                        roomRepository.save(r);
-                    });
+                // 배정기가 같은 기간을 이미 점유해 둔 경우에는 다시 잡지 않는다.
+                if (!room.getBookedPeriods().contains(period) && !room.tryBookPeriod(period)) {
+                    throw new IllegalStateException(String.format(
+                            "[%s호] 배정 반영 중 다른 예약과 일정이 겹쳤습니다. reservationId=%s",
+                            roomNumber, success.getReservationId()));
                 }
-                success.cancelAssignment();
+                roomRepository.save(room);
             }
+            reservationRepository.save(success);
         }
 
         return result;
@@ -405,23 +399,27 @@ public class ReservationService {
                                     long amount,
                                     String instantChargeCategory,
                                     String instantChargeDescription) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("거래 금액은 0보다 커야 합니다.");
+        }
+
         Reservation reservation = findReservationOrThrow(reservationId);
         PaymentLedger ledger = reservation.getPaymentLedger();
 
-        // 1. 청구 등록 (+)
+        boolean instantSettlement = instantChargeCategory != null
+                && !instantChargeCategory.isBlank()
+                && !"NONE".equalsIgnoreCase(instantChargeCategory);
+
         if ("CHARGE".equalsIgnoreCase(type)) {
             String cat = (category != null && !category.isBlank()) ? category : "EXTRA_CHARGE";
             String desc = (description != null && !description.isBlank()) ? description : "이용 요금 청구";
             ledger.addCharge(cat, desc, amount);
-        }
-        // 2. 수납 등록 (-)
-        else if ("PAYMENT".equalsIgnoreCase(type)) {
+        } else if ("PAYMENT".equalsIgnoreCase(type)) {
             String method = (paymentMethod != null && !paymentMethod.isBlank()) ? paymentMethod : "CASH";
             String desc = (description != null && !description.isBlank()) ? description : (method.equals("CREDIT_CARD") ? "신용카드 승인" : "현금 지불 수납");
             ledger.recordPayment(method, desc, amount);
-        }
-        // 3. 동시 상쇄 분개 (선택 시)
-        else if (instantChargeCategory != null && !instantChargeCategory.isBlank() && !"NONE".equalsIgnoreCase(instantChargeCategory)) {
+        } else if (instantSettlement) {
+            // 청구와 수납을 같은 금액으로 동시에 기록해 잔액은 그대로 둔다.
             ledger.recordInstantSettlement(
                     instantChargeCategory,
                     instantChargeDescription != null ? instantChargeDescription : "현장 즉시 결제 항목",
@@ -429,9 +427,10 @@ public class ReservationService {
                     description,
                     amount
             );
+        } else {
+            throw new IllegalArgumentException("지원하지 않는 거래 유형입니다: " + type);
         }
 
-        // DB에 즉시 영속화
         reservationRepository.save(reservation);
     }
 
