@@ -50,3 +50,5 @@ bin/
 ###DB용 파일###
 *.mv.db
 *.trace.db
+
+CLAUDE.md
