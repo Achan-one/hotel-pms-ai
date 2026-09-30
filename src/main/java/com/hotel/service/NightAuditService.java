@@ -143,13 +143,26 @@ public class NightAuditService {
                 ReservationSearchCondition.byStayingDate(currentBusinessDate)
         ).stream().filter(r -> r.getStatus() == ReservationStatus.CHECKED_IN).toList();
 
+        // 요율 스케줄에 그 날짜 항목이 아예 없는 투숙객이 있으면 마감하지 않는다.
+        // 마감하면 그날은 다시 오딧을 돌릴 수 없어서 누락된 객실료를 청구할 방법이 없다.
+        // 항목은 있는데 0원인 경우(무료 숙박)는 의도된 값이므로 청구 없이 통과한다.
+        List<String> missingRate = inHouseGuests.stream()
+                .filter(g -> !g.getDailyRateSchedule().getDailyRates().containsKey(currentBusinessDate))
+                .map(Reservation::getReservationId)
+                .toList();
+        if (!missingRate.isEmpty()) {
+            throw new IllegalStateException(String.format(
+                    "%s 요율이 등록되지 않은 투숙객이 있어 나이트 오딧을 진행할 수 없습니다. 일자별 요금을 등록한 뒤 다시 실행하세요. 대상: %s",
+                    currentBusinessDate, missingRate));
+        }
+
         int postedCount = 0;
         long totalRevenue = 0L;
 
         for (Reservation guest : inHouseGuests) {
             long dailyRate = guest.getDailyRateSchedule().getRateForDate(currentBusinessDate);
             if (dailyRate <= 0) {
-                log.warn("[Night Audit] 요율이 없어 객실료를 포스팅하지 않았습니다: {} ({})", guest.getReservationId(), currentBusinessDate);
+                log.info("[Night Audit] 요율이 0원이라 객실료를 청구하지 않았습니다: {} ({})", guest.getReservationId(), currentBusinessDate);
                 continue;
             }
 

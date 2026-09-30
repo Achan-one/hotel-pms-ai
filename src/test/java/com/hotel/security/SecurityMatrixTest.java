@@ -66,6 +66,7 @@ class SecurityMatrixTest {
                 // 관리자 전용
                 Arguments.of(HttpMethod.POST, "/api/admin/staff", staff),
                 Arguments.of(HttpMethod.POST, "/api/admin/staff", part),
+                Arguments.of(HttpMethod.POST, "/api/admin/tags", staff),
                 Arguments.of(HttpMethod.PATCH, "/api/admin/staff/someone/enabled", staff),
                 Arguments.of(HttpMethod.PATCH, "/api/admin/staff/someone/enabled", part),
                 Arguments.of(HttpMethod.PUT, "/api/system/business-date", staff),

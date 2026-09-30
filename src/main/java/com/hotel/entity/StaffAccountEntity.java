@@ -4,8 +4,6 @@ import com.hotel.domain.StaffAccount;
 import com.hotel.domain.StaffRole;
 import jakarta.persistence.*;
 
-import java.time.LocalDateTime;
-
 @Entity
 @Table(name = "staff_accounts")
 public class StaffAccountEntity {
@@ -27,12 +25,6 @@ public class StaffAccountEntity {
     @Column(name = "enabled", nullable = false)
     private boolean enabled = true;
 
-    @Column(name = "failed_attempts", nullable = false)
-    private int failedAttempts;
-
-    @Column(name = "locked_until")
-    private LocalDateTime lockedUntil;
-
     protected StaffAccountEntity() {}
 
     public StaffAccountEntity(String staffId, String passwordHash, String name, StaffRole role) {
@@ -50,8 +42,6 @@ public class StaffAccountEntity {
                 domain.role()
         );
         entity.enabled = domain.enabled();
-        entity.failedAttempts = domain.failedAttempts();
-        entity.lockedUntil = domain.lockedUntil();
         return entity;
     }
 
@@ -61,9 +51,7 @@ public class StaffAccountEntity {
                 this.passwordHash,
                 this.name,
                 this.role,
-                this.enabled,
-                this.failedAttempts,
-                this.lockedUntil
+                this.enabled
         );
     }
 
@@ -72,6 +60,4 @@ public class StaffAccountEntity {
     public String getName() { return name; }
     public StaffRole getRole() { return role; }
     public boolean isEnabled() { return enabled; }
-    public int getFailedAttempts() { return failedAttempts; }
-    public LocalDateTime getLockedUntil() { return lockedUntil; }
 }

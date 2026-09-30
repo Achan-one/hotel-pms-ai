@@ -6,7 +6,11 @@ import com.hotel.domain.Reservation;
 import com.hotel.domain.Room;
 import com.hotel.domain.RoomType;
 import com.hotel.domain.StayPeriod;
+import com.hotel.domain.StaffAccount;
+import com.hotel.domain.StaffRole;
 import com.hotel.repository.RoomRepository;
+import com.hotel.repository.StaffRepository;
+import com.hotel.service.AuthService;
 import com.hotel.service.ReservationService;
 import com.hotel.service.dto.RoomChangeRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -75,23 +79,28 @@ class MySqlSchemaAndConcurrencyIT {
     private ReservationService reservationService;
     @Autowired
     private PlatformTransactionManager txManager;
+    @Autowired
+    private AuthService authService;
+    @Autowired
+    private StaffRepository staffRepository;
 
     @AfterEach
     void cleanUp() {
         jdbc.update("DELETE FROM room_night_occupancy WHERE room_number IN (?, ?, ?)", ROOM_A, ROOM_B, ROOM_SOLO);
         jdbc.update("DELETE FROM room_schedules WHERE room_number IN (?, ?, ?)", ROOM_A, ROOM_B, ROOM_SOLO);
         jdbc.update("DELETE FROM reservations WHERE reservation_id LIKE 'IT-%'");
+        jdbc.update("DELETE FROM staff_accounts WHERE staff_id LIKE 'it-admin-%'");
         jdbc.update("UPDATE rooms SET status = 'VACANT' WHERE room_number IN (?, ?, ?)", ROOM_A, ROOM_B, ROOM_SOLO);
     }
 
     @Test
-    @DisplayName("V1, V2 마이그레이션이 모두 성공하고 엔티티 검증(validate)을 통과한다")
+    @DisplayName("V1~V6 마이그레이션이 모두 성공하고 엔티티 검증(validate)을 통과한다")
     void migrationsApplyAndSchemaValidates() {
         // 컨텍스트가 뜬 것 자체가 ddl-auto=validate 통과를 뜻한다.
         Integer applied = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IN ('1', '2')",
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IN ('1', '2', '3', '4', '5', '6')",
                 Integer.class);
-        assertEquals(2, applied);
+        assertEquals(6, applied);
     }
 
     @Test
@@ -184,5 +193,55 @@ class MySqlSchemaAndConcurrencyIT {
         reservationService.receiveReservations(List.of(reservation));
         reservationService.manualAssignRoom(reservationId, roomNumber);
         reservationService.processCheckIn(reservationId);
+    }
+
+    @Test
+    @DisplayName("관리자 둘이 동시에 서로를 비활성화하면 InnoDB 행 잠금으로 직렬화되어 한 명은 남는다")
+    void concurrentAdminDisableKeepsOneActive() throws Exception {
+        // 이 테스트가 만든 관리자만 활성으로 두고, 시드나 초기화 로직이 만든 관리자는 잠시 끈다.
+        List<String> previouslyActive = jdbc.queryForList(
+                "SELECT staff_id FROM staff_accounts WHERE role = 'ROLE_ADMIN' AND enabled = 1", String.class);
+        previouslyActive.forEach(id -> jdbc.update("UPDATE staff_accounts SET enabled = 0 WHERE staff_id = ?", id));
+        try {
+            staffRepository.save(new StaffAccount("it-admin-a", "hash", "A", StaffRole.ROLE_ADMIN));
+            staffRepository.save(new StaffAccount("it-admin-b", "hash", "B", StaffRole.ROLE_ADMIN));
+
+            for (int round = 0; round < 5; round++) {
+                staffRepository.updateEnabled("it-admin-a", true);
+                staffRepository.updateEnabled("it-admin-b", true);
+
+                CountDownLatch start = new CountDownLatch(1);
+                ExecutorService pool = Executors.newFixedThreadPool(2);
+                try {
+                    Future<Boolean> a = pool.submit(disable(start, "it-admin-a", "it-admin-b"));
+                    Future<Boolean> b = pool.submit(disable(start, "it-admin-b", "it-admin-a"));
+                    start.countDown();
+
+                    boolean first = a.get(20, TimeUnit.SECONDS);
+                    boolean second = b.get(20, TimeUnit.SECONDS);
+                    Integer active = jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM staff_accounts WHERE role = 'ROLE_ADMIN' AND enabled = 1", Integer.class);
+
+                    assertTrue(first ^ second, "둘 중 정확히 하나만 성공해야 한다");
+                    assertEquals(1, active);
+                } finally {
+                    pool.shutdownNow();
+                }
+            }
+        } finally {
+            previouslyActive.forEach(id -> jdbc.update("UPDATE staff_accounts SET enabled = 1 WHERE staff_id = ?", id));
+        }
+    }
+
+    private Callable<Boolean> disable(CountDownLatch start, String actor, String target) {
+        return () -> {
+            start.await();
+            try {
+                authService.setStaffEnabled(actor, target, false);
+                return true;
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+        };
     }
 }

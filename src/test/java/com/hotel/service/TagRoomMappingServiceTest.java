@@ -37,7 +37,7 @@ class TagRoomMappingServiceTest {
     @Test
     @DisplayName("[태그 등록] 대상 객실에 태그가 실제로 저장되어야 한다")
     void registerPersistsRoomMapping() {
-        service.registerCustomTag(customTag("SEA_VIEW"), List.of("0501", "0502"));
+        service.registerCustomTag(true, customTag("SEA_VIEW"), List.of("0501", "0502"));
 
         assertTrue(tagRepository.findByCode("SEA_VIEW").isPresent());
         assertTrue(roomRepository.findByRoomNumber("0501").orElseThrow().hasTag("SEA_VIEW"));
@@ -49,7 +49,7 @@ class TagRoomMappingServiceTest {
     @DisplayName("[태그 등록] 이미 있는 코드(시스템 태그 포함)로는 덮어쓸 수 없다")
     void registerExistingCodeIsRejected() {
         assertThrows(DuplicateResourceException.class,
-                () -> service.registerCustomTag(customTag("HIGH_FLOOR"), List.of()));
+                () -> service.registerCustomTag(true, customTag("HIGH_FLOOR"), List.of()));
 
         assertTrue(tagRepository.findByCode("HIGH_FLOOR").orElseThrow().isSystemDefault());
     }
@@ -58,15 +58,25 @@ class TagRoomMappingServiceTest {
     @DisplayName("[태그 등록] 도면에 없는 객실 번호가 있으면 태그도 만들지 않는다")
     void registerWithUnknownRoomIsRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.registerCustomTag(customTag("GHOST"), List.of("0501", "9999")));
+                () -> service.registerCustomTag(true, customTag("GHOST"), List.of("0501", "9999")));
 
         assertTrue(tagRepository.findByCode("GHOST").isEmpty());
     }
 
     @Test
+    @DisplayName("[태그 등록] 관리자가 아니면 서비스 계층에서도 거부하고 아무것도 저장하지 않는다")
+    void registerByNonAdminIsRejected() {
+        assertThrows(SecurityException.class,
+                () -> service.registerCustomTag(false, customTag("NOT_ALLOWED"), List.of("0501")));
+
+        assertTrue(tagRepository.findByCode("NOT_ALLOWED").isEmpty());
+        assertFalse(roomRepository.findByRoomNumber("0501").orElseThrow().hasTag("NOT_ALLOWED"));
+    }
+
+    @Test
     @DisplayName("[태그 삭제] 삭제하면 모든 객실에서 매핑도 사라지고, 시스템 태그는 삭제할 수 없다")
     void deleteRemovesMappingsAndProtectsSystemTags() {
-        service.registerCustomTag(customTag("TEMP_TAG"), List.of("0501", "0502"));
+        service.registerCustomTag(true, customTag("TEMP_TAG"), List.of("0501", "0502"));
 
         service.deleteTag("TEMP_TAG");
 
@@ -78,7 +88,7 @@ class TagRoomMappingServiceTest {
     @Test
     @DisplayName("[태그 매핑] 목록에서 빠진 객실은 태그가 제거되고 새 객실은 추가되어야 한다")
     void replaceMappingAddsAndRemoves() {
-        service.registerCustomTag(customTag("MOVE_TAG"), List.of("0501", "0502"));
+        service.registerCustomTag(true, customTag("MOVE_TAG"), List.of("0501", "0502"));
 
         service.replaceRoomMapping("MOVE_TAG", List.of("0502", "0503"));
 

@@ -46,7 +46,7 @@ public class AuthService {
      * 실패 횟수는 예외가 던져져도 남아야 하므로 이 메서드는 트랜잭션으로 감싸지 않는다.
      * 저장소 호출이 각자 트랜잭션을 연다.
      */
-    public LoginResponse login(LoginRequest request) {
+    public LoginResponse login(LoginRequest request, String clientIp) {
         String staffId = normalize(request.staffId());
         LocalDateTime now = LocalDateTime.now();
 
@@ -54,18 +54,17 @@ public class AuthService {
         String hashToCheck = (account != null) ? account.passwordHash() : dummyPasswordHash;
         boolean passwordMatches = passwordEncoder.matches(request.password(), hashToCheck);
 
-        if (account == null || !account.enabled() || account.isLocked(now)) {
+        // 잠금은 (계정, 접속 IP) 단위다. 남이 내 ID로 틀린 비밀번호를 보내도 내가 다른 IP에서 로그인하는 데는 영향이 없다.
+        if (account == null || !account.enabled() || staffRepository.isLoginLocked(account.staffId(), clientIp, now)) {
             throw new BadCredentialsException(LOGIN_FAILED_MESSAGE);
         }
         if (!passwordMatches) {
             staffRepository.recordLoginFailure(
-                    account.staffId(), MAX_FAILED_ATTEMPTS, now.plusMinutes(LOCK_MINUTES));
+                    account.staffId(), clientIp, MAX_FAILED_ATTEMPTS, now.plusMinutes(LOCK_MINUTES));
             throw new BadCredentialsException(LOGIN_FAILED_MESSAGE);
         }
 
-        if (account.failedAttempts() > 0 || account.lockedUntil() != null) {
-            staffRepository.recordLoginSuccess(account.staffId());
-        }
+        staffRepository.recordLoginSuccess(account.staffId(), clientIp);
 
         String token = tokenProvider.generateToken(account.staffId(), account.role());
         return LoginResponse.of(token, account.staffId(), account.name(), account.role());
@@ -77,6 +76,9 @@ public class AuthService {
      */
     @Transactional
     public void setStaffEnabled(String actorStaffId, String targetStaffId, boolean enabled) {
+        // 활성 관리자 행을 먼저 잠근다. 검사와 변경 사이에 다른 관리자가 끼어들어 활성 관리자가 0명이 되는 것을 막는다.
+        long activeAdmins = staffRepository.lockAndCountEnabledByRole(StaffRole.ROLE_ADMIN);
+
         String targetId = normalize(targetStaffId);
         StaffAccount target = staffRepository.findByStaffId(targetId)
                 .orElseThrow(() -> new NoSuchElementException("등록되지 않은 직원입니다: " + targetStaffId));
@@ -85,8 +87,7 @@ public class AuthService {
             if (targetId.equals(normalize(actorStaffId))) {
                 throw new IllegalArgumentException("본인 계정은 비활성화할 수 없습니다.");
             }
-            if (target.enabled() && target.role() == StaffRole.ROLE_ADMIN
-                    && staffRepository.countEnabledByRole(StaffRole.ROLE_ADMIN) <= 1) {
+            if (target.enabled() && target.role() == StaffRole.ROLE_ADMIN && activeAdmins <= 1) {
                 throw new IllegalArgumentException("마지막 활성 관리자 계정은 비활성화할 수 없습니다.");
             }
         }

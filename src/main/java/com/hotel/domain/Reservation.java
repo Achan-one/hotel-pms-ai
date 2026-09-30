@@ -206,6 +206,21 @@ public class Reservation {
         this.status = ReservationStatus.CANCELLED;
     }
 
+    /**
+     * 저장소에서 읽은 상태를 그대로 되돌린다. 저장소 매핑 전용이다.
+     * 체크인/체크아웃/룸체인지 메서드를 다시 실행하면 그 시점의 업무 규칙(미정산 잔액 검사 등)이 적용되어,
+     * 퇴실 후에 요금이 추가된 예약이나 룸체인지를 한 예약이 복원 중에 예외를 던지거나 이력이 바뀐다.
+     */
+    public void restorePersistedState(ReservationStatus persistedStatus,
+                                      String persistedAssignedRoom,
+                                      String persistedPreviousRoom,
+                                      LocalDate persistedActualCheckOutDate) {
+        this.status = Objects.requireNonNull(persistedStatus, "예약 상태는 필수입니다.");
+        this.assignedRoomNumber = (persistedAssignedRoom != null) ? persistedAssignedRoom.trim() : null;
+        this.previousRoomNumber = (persistedPreviousRoom != null) ? persistedPreviousRoom.trim() : null;
+        this.actualCheckOutDate = persistedActualCheckOutDate;
+    }
+
     // Getters
     public String getReservationId() { return reservationId; }
     public String getOriginalGuestName() { return originalGuestName; }
@@ -223,6 +238,16 @@ public class Reservation {
     public LocalDate getCheckInDate() { return operationalCheckInDate; }
     public int getStayNights() { return operationalStayNights; }
     public LocalDate getCheckOutDate() { return operationalCheckInDate.plusDays(operationalStayNights); }
+
+    /**
+     * 실제로 방을 비우는 날. 조기 퇴실한 예약은 실제 퇴실일, 그 외에는 예정 체크아웃일이다.
+     * 숙박 박수는 [체크인, 이 날짜) 구간으로 센다.
+     */
+    @JsonIgnore
+    public LocalDate getEffectiveCheckOutDate() {
+        return (status == ReservationStatus.CHECKED_OUT && actualCheckOutDate != null)
+                ? actualCheckOutDate : getCheckOutDate();
+    }
 
     public String getAssignedRoomNumber() { return assignedRoomNumber; }
     public String getPreviousRoomNumber() { return previousRoomNumber; }
@@ -277,7 +302,10 @@ public class Reservation {
         clone.assignedRoomNumber = this.assignedRoomNumber;
         clone.previousRoomNumber = this.previousRoomNumber;
         clone.status = this.status;
+        clone.actualCheckOutDate = this.actualCheckOutDate;
+        clone.lateCheckOutTime = this.lateCheckOutTime;
         clone.dailyRateSchedule = this.dailyRateSchedule;
+        clone.version = this.version;
         return clone;
     }
 

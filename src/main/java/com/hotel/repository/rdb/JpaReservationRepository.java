@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -42,17 +43,29 @@ public class JpaReservationRepository implements ReservationRepository {
     public void save(Reservation reservation) {
         Objects.requireNonNull(reservation, "저장할 예약 객체는 null일 수 없습니다.");
         ReservationEntity entity = ReservationEntity.fromDomain(reservation);
-        adoptExistingVersion(entity);
+        adoptExistingVersions(List.of(entity));
         ReservationEntity saved = jpaRepo.saveAndFlush(entity);
         reservation.setVersion(saved.getVersion());
     }
 
-    // 새로 만든 도메인 객체를 기존 ID로 다시 저장하는 경우(채널 재전송 등)는 덮어쓰기로 처리한다.
+    // 버전이 없는 객체(새로 만든 예약)를 이미 있는 ID로 저장하면 덮어쓰기로 처리한다. 채널 재전송이 이 경우다.
     // 버전이 없으면 JPA가 신규 행으로 보고 INSERT를 시도하므로 현재 DB의 버전을 이어받는다.
-    private void adoptExistingVersion(ReservationEntity entity) {
-        if (entity.getVersion() == null) {
-            jpaRepo.findById(entity.getReservationId())
-                    .ifPresent(existing -> entity.setVersion(existing.getVersion()));
+    // DB에서 읽어 온 객체는 항상 버전을 들고 있어서 이 경로를 타지 않고, 동시 수정은 낙관적 락으로 걸러진다.
+    // 복제 메서드(withTagPreference 등)가 버전을 빠뜨리면 이 경로로 빠져 락이 우회되므로 반드시 복사해야 한다.
+    private void adoptExistingVersions(Collection<ReservationEntity> entities) {
+        Map<String, ReservationEntity> unversioned = new java.util.HashMap<>();
+        for (ReservationEntity e : entities) {
+            if (e.getVersion() == null) unversioned.putIfAbsent(e.getReservationId(), e);
+        }
+        if (unversioned.isEmpty()) return;
+
+        // 건마다 조회하지 않고 한 번의 IN 조회로 기존 행의 버전을 가져온다.
+        for (ReservationEntity existing : jpaRepo.findAllById(unversioned.keySet())) {
+            for (ReservationEntity e : entities) {
+                if (e.getVersion() == null && e.getReservationId().equals(existing.getReservationId())) {
+                    e.setVersion(existing.getVersion());
+                }
+            }
         }
     }
 
@@ -64,7 +77,7 @@ public class JpaReservationRepository implements ReservationRepository {
         List<ReservationEntity> entities = domains.stream()
                 .map(ReservationEntity::fromDomain)
                 .toList();
-        entities.forEach(this::adoptExistingVersion);
+        adoptExistingVersions(entities);
         List<ReservationEntity> saved = jpaRepo.saveAllAndFlush(entities);
         for (int i = 0; i < domains.size(); i++) {
             domains.get(i).setVersion(saved.get(i).getVersion());
@@ -99,6 +112,25 @@ public class JpaReservationRepository implements ReservationRepository {
         if (checkInDate == null) return List.of();
         return jpaRepo.findByOperationalCheckInDate(checkInDate)
                 .stream().map(ReservationEntity::toDomain)
+                .sorted(Comparator.comparing(Reservation::getReservationId)).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Reservation> findByCheckInDateBetween(LocalDate from, LocalDate to) {
+        if (from == null || to == null) return List.of();
+        return jpaRepo.findByOperationalCheckInDateBetween(from, to)
+                .stream().map(ReservationEntity::toDomain)
+                .sorted(Comparator.comparing(Reservation::getReservationId)).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Reservation> findStayingBetween(LocalDate from, LocalDate to) {
+        if (from == null || to == null) return List.of();
+        return jpaRepo.findByOperationalCheckInDateLessThanEqualAndStatusNot(to, ReservationStatus.CANCELLED)
+                .stream().map(ReservationEntity::toDomain)
+                .filter(r -> r.getEffectiveCheckOutDate().isAfter(from))
                 .sorted(Comparator.comparing(Reservation::getReservationId)).toList();
     }
 
@@ -145,9 +177,7 @@ public class JpaReservationRepository implements ReservationRepository {
             LocalDate target = condition.stayingDate();
             results = results.stream().filter(r -> {
                 if (r.getCheckInDate() == null || r.getStatus() == ReservationStatus.CANCELLED) return false;
-                LocalDate effectiveCheckOut = (r.getStatus() == ReservationStatus.CHECKED_OUT && r.getActualCheckOutDate() != null)
-                        ? r.getActualCheckOutDate() : r.getCheckOutDate();
-                return !target.isBefore(r.getCheckInDate()) && target.isBefore(effectiveCheckOut);
+                return !target.isBefore(r.getCheckInDate()) && target.isBefore(r.getEffectiveCheckOutDate());
             }).toList();
         }
 

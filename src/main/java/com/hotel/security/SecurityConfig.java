@@ -84,6 +84,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/system/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 3. 동적 태그 관리
+                        // 태그 등록은 관리자만, 조회/수정/삭제/객실 매핑은 관리자와 정직원
+                        .requestMatchers(HttpMethod.POST, "/api/admin/tags").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/admin/tags", "/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 4. 룸 인디케이터

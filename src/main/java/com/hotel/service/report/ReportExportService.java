@@ -29,11 +29,13 @@ public class ReportExportService {
         this.roomAssigner = Objects.requireNonNull(roomAssigner, "roomAssigner는 필수입니다.");
     }
 
-    // 1. 조건부 예약 원장 (Protected Reservation Ledger)
-    public String exportReservationsToCsv(ReservationSearchCondition condition) {
-        ReportPolicy.validateExportCondition(condition);
+    // 1. 예약 원장: 체크인 일자가 [from, to]에 드는 예약의 전체 정보
+    public String exportReservationsToCsv(LocalDate from, LocalDate to, ReservationStatus status, boolean includeStaffMemo) {
+        ReportPolicy.validateDateRange(from, to);
 
-        List<Reservation> list = reservationRepository.search(condition);
+        List<Reservation> list = reservationRepository.findByCheckInDateBetween(from, to).stream()
+                .filter(r -> status == null || r.getStatus() == status)
+                .toList();
         if (list.size() > ReportPolicy.MAX_ROW_LIMIT) {
             throw new IllegalStateException(String.format(
                     "조회 데이터 한도 초과 (%d건). 최대 출력 한도는 %d건입니다.",
@@ -41,17 +43,40 @@ public class ReportExportService {
         }
 
         List<String> headers = List.of(
-                "예약번호", "고객명", "객실타입", "체크인", "박수", "배정호실", "상태", "요청사항"
+                "예약번호", "고객명", "OTA원본고객명", "객실타입", "체크인", "체크아웃", "박수",
+                "배정호실", "이전호실", "상태", "실제퇴실일",
+                "예약채널", "채널예약번호", "플랜명", "조식", "조식인원",
+                "결제유형", "총청구", "총수납", "잔액",
+                "도착예정시각", "레이트체크아웃", "희망태그", "기피태그", "고객요청", "내부메모"
         );
         List<Function<Reservation, Object>> mappers = List.of(
                 Reservation::getReservationId,
                 Reservation::getGuestName,
+                Reservation::getOriginalGuestName,
                 r -> r.getBookedRoomType().getDescription(),
                 Reservation::getCheckInDate,
+                Reservation::getCheckOutDate,
                 Reservation::getStayNights,
                 r -> r.isAssigned() ? r.getAssignedRoomNumber() : "미배정",
+                r -> r.getPreviousRoomNumber() != null ? r.getPreviousRoomNumber() : "",
                 r -> r.getStatus().getTitle(),
-                r -> r.getRawRequestText() != null ? r.getRawRequestText() : ""
+                r -> r.getActualCheckOutDate() != null ? r.getActualCheckOutDate() : "",
+                r -> r.getChannelInfo().channelType().name(),
+                r -> r.getChannelInfo().channelReservationNo() != null ? r.getChannelInfo().channelReservationNo() : "",
+                r -> r.getChannelInfo().planName() != null ? r.getChannelInfo().planName() : "",
+                r -> r.getBreakfastOption().isIncluded() ? "포함" : "미포함",
+                r -> r.getBreakfastOption().isIncluded() ? r.getBreakfastOption().getDailyBreakfastCount() : 0,
+                r -> r.getPaymentLedger().getPaymentType().getDesc(),
+                r -> r.getPaymentLedger().getTotalCharges(),
+                r -> r.getPaymentLedger().getTotalPayments(),
+                r -> r.getPaymentLedger().getBalance(),
+                r -> r.getEstimatedArrivalTime() != null ? r.getEstimatedArrivalTime() : "",
+                r -> r.getLateCheckOutTime() != null ? r.getLateCheckOutTime() : "",
+                r -> String.join(" ", r.getTagPreference().preferredTags()),
+                r -> String.join(" ", r.getTagPreference().avoidTags()),
+                r -> r.getRawRequestText() != null ? r.getRawRequestText() : "",
+                // 내부 인계 메모는 정직원 이상에게만 내려준다. OTA 전문 원문(rawXmlPayload)은 CSV에 넣지 않는다.
+                r -> includeStaffMemo ? r.getInternalStaffMemo() : ""
         );
 
         return CsvSerializer.serialize(headers, mappers, list);
@@ -148,46 +173,66 @@ public class ReportExportService {
     }
 
     // 4. 재실 숙박자 명단 (In-House Guest List)
-    public List<InHouseGuestDto> getInHouseGuestList(LocalDate targetDate) {
-        LocalDate date = Objects.requireNonNull(targetDate, "기준 일자는 필수입니다.");
-        List<Reservation> stayingList = reservationRepository.search(ReservationSearchCondition.byStayingDate(date));
+    /**
+     * [from, to] 중 하룻밤이라도 숙박하는 예약 명단. 취소 건은 제외하고, 객실이 아직 없으면 미배정으로 나온다.
+     */
+    public List<InHouseGuestDto> getInHouseGuestList(LocalDate from, LocalDate to) {
+        ReportPolicy.validateDateRange(from, to);
+        List<Reservation> stayingList = reservationRepository.findStayingBetween(from, to);
 
         return stayingList.stream()
-                .filter(r -> r.getStatus().isInHouse() && r.isAssigned())
                 .map(r -> {
-                    int floor = Integer.parseInt(r.getAssignedRoomNumber().substring(0, 2));
-                    int calculatedDay = (int) ChronoUnit.DAYS.between(r.getCheckInDate(), date) + 1;
-                    int currentStayDay = Math.min(r.getStayNights(), Math.max(1, calculatedDay));
+                    String room = r.isAssigned() ? r.getAssignedRoomNumber().trim() : null;
+                    Integer floor = (room != null && room.length() >= 2) ? Integer.valueOf(room.substring(0, 2)) : null;
+                    int calculatedDay = (int) ChronoUnit.DAYS.between(r.getCheckInDate(), from) + 1;
+                    int currentStayDay = Math.min(Math.max(1, r.getStayNights()), Math.max(1, calculatedDay));
+
+                    LocalDate firstNight = r.getCheckInDate().isAfter(from) ? r.getCheckInDate() : from;
+                    LocalDate lastNightExclusive = r.getEffectiveCheckOutDate().isBefore(to.plusDays(1))
+                            ? r.getEffectiveCheckOutDate() : to.plusDays(1);
+                    int nightsInRange = (int) Math.max(0, ChronoUnit.DAYS.between(firstNight, lastNightExclusive));
 
                     return new InHouseGuestDto(
-                            r.getAssignedRoomNumber(),
+                            room,
                             floor,
                             r.getGuestName(),
                             r.getReservationId(),
                             r.getBookedRoomType(),
+                            r.getStatus(),
                             r.getCheckInDate(),
                             r.getCheckOutDate(),
                             currentStayDay,
-                            r.getStayNights()
+                            r.getStayNights(),
+                            nightsInRange
                     );
                 })
-                .sorted(Comparator.comparing(InHouseGuestDto::roomNumber))
+                .sorted(Comparator.comparing((InHouseGuestDto g) -> g.roomNumber() == null)
+                        .thenComparing(g -> g.roomNumber() == null ? "" : g.roomNumber())
+                        .thenComparing(InHouseGuestDto::reservationId))
                 .toList();
     }
 
-    public String exportInHouseGuestListToCsv(LocalDate targetDate) {
-        List<InHouseGuestDto> list = getInHouseGuestList(targetDate);
-        List<String> headers = List.of("호실", "층", "투숙객명", "예약ID", "객실타입", "체크인", "체크아웃", "투숙일차", "총박수");
+    public String exportInHouseGuestListToCsv(LocalDate from, LocalDate to) {
+        List<InHouseGuestDto> list = getInHouseGuestList(from, to);
+        if (list.size() > ReportPolicy.MAX_ROW_LIMIT) {
+            throw new IllegalStateException(String.format(
+                    "조회 데이터 한도 초과 (%d건). 최대 출력 한도는 %d건입니다.",
+                    list.size(), ReportPolicy.MAX_ROW_LIMIT));
+        }
+        List<String> headers = List.of("호실", "층", "투숙객명", "예약ID", "객실타입", "상태", "체크인", "체크아웃",
+                "투숙일차(조회시작일 기준)", "총박수", "조회기간내숙박수");
         List<Function<InHouseGuestDto, Object>> mappers = List.of(
-                InHouseGuestDto::roomNumber,
-                InHouseGuestDto::floor,
+                item -> item.roomNumber() != null ? item.roomNumber() : "미배정",
+                item -> item.floor() != null ? item.floor() : "",
                 InHouseGuestDto::guestName,
                 InHouseGuestDto::reservationId,
                 item -> item.roomType().getDescription(),
+                item -> item.status().getTitle(),
                 InHouseGuestDto::checkInDate,
                 InHouseGuestDto::checkOutDate,
                 item -> item.currentStayDay() + "일차",
-                InHouseGuestDto::totalNights
+                InHouseGuestDto::totalNights,
+                InHouseGuestDto::nightsInRange
         );
         return CsvSerializer.serialize(headers, mappers, list);
     }

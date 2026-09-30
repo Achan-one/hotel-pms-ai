@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.hotel.domain.*;
 import jakarta.persistence.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -23,6 +25,8 @@ import java.util.stream.Collectors;
         }
 )
 public class ReservationEntity {
+
+    private static final Logger log = LoggerFactory.getLogger(ReservationEntity.class);
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule())
@@ -232,7 +236,7 @@ public class ReservationEntity {
                     payment.getTransactions().addAll(txList);
                 }
             } catch (Exception e) {
-                System.err.println("원장 역직렬화 실패: " + e.getMessage());
+                log.error("원장(transactions_json) 역직렬화 실패 reservationId={}", this.reservationId, e);
             }
         }
 
@@ -261,21 +265,8 @@ public class ReservationEntity {
                 this.internalStaffMemo
         );
 
-        if (this.assignedRoomNumber != null) {
-            domain.assignRoom(this.assignedRoomNumber);
-        }
-        if (this.previousRoomNumber != null) {
-            domain.changeRoom(this.assignedRoomNumber);
-        }
-
-        if (this.status == ReservationStatus.CHECKED_IN) {
-            domain.checkIn();
-        } else if (this.status == ReservationStatus.CHECKED_OUT) {
-            domain.checkIn();
-            domain.checkOut(this.actualCheckOutDate);
-        } else if (this.status == ReservationStatus.CANCELLED) {
-            domain.cancelReservation();
-        }
+        // 상태와 객실 이력은 업무 메서드를 다시 실행하지 않고 저장된 값 그대로 복원한다.
+        domain.restorePersistedState(this.status, this.assignedRoomNumber, this.previousRoomNumber, this.actualCheckOutDate);
 
         if (this.lateCheckOutTime != null) {
             domain.grantLateCheckOut(this.lateCheckOutTime);
@@ -287,7 +278,9 @@ public class ReservationEntity {
                 Map<LocalDate, Long> rates = new LinkedHashMap<>();
                 map.forEach((dateStr, rateVal) -> rates.put(LocalDate.parse(dateStr), Long.valueOf(rateVal.toString())));
                 domain.updateDailyRates(rates);
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                log.error("일자별 요율(daily_rates_json) 복원 실패, 기본 요율을 사용합니다 reservationId={}", this.reservationId, e);
+            }
         }
 
         return domain;

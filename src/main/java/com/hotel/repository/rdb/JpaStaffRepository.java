@@ -1,8 +1,10 @@
 package com.hotel.repository.rdb;
 
 import com.hotel.domain.StaffAccount;
+import com.hotel.entity.LoginAttemptEntity;
 import com.hotel.entity.StaffAccountEntity;
 import com.hotel.repository.StaffRepository;
+import com.hotel.repository.jpa.SpringDataLoginAttemptRepository;
 import com.hotel.repository.jpa.SpringDataStaffRepository;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
@@ -19,9 +21,11 @@ import java.util.Optional;
 public class JpaStaffRepository implements StaffRepository {
 
     private final SpringDataStaffRepository jpaRepo;
+    private final SpringDataLoginAttemptRepository attemptRepo;
 
-    public JpaStaffRepository(SpringDataStaffRepository jpaRepo) {
+    public JpaStaffRepository(SpringDataStaffRepository jpaRepo, SpringDataLoginAttemptRepository attemptRepo) {
         this.jpaRepo = Objects.requireNonNull(jpaRepo);
+        this.attemptRepo = Objects.requireNonNull(attemptRepo);
     }
 
     @Override
@@ -40,33 +44,54 @@ public class JpaStaffRepository implements StaffRepository {
     }
 
     @Override
-    @Transactional
-    public void recordLoginFailure(String staffId, int maxAttempts, LocalDateTime lockUntil) {
+    @Transactional(readOnly = true)
+    public boolean isLoginLocked(String staffId, String clientIp, LocalDateTime now) {
         String id = normalize(staffId);
-        if (id == null) return;
-        jpaRepo.incrementFailedAttempts(id);
-        jpaRepo.lockIfExceeded(id, maxAttempts, lockUntil);
+        if (id == null) return false;
+        return attemptRepo.findById(new LoginAttemptEntity.Key(id, ip(clientIp)))
+                .map(a -> a.getLockedUntil() != null && a.getLockedUntil().isAfter(now))
+                .orElse(false);
     }
 
     @Override
     @Transactional
-    public void recordLoginSuccess(String staffId) {
+    public void recordLoginFailure(String staffId, String clientIp, int maxAttempts, LocalDateTime lockUntil) {
         String id = normalize(staffId);
         if (id == null) return;
-        jpaRepo.clearLoginFailures(id);
+        String address = ip(clientIp);
+        attemptRepo.incrementFailures(id, address);
+        attemptRepo.lockIfExceeded(id, address, maxAttempts, lockUntil);
+    }
+
+    @Override
+    @Transactional
+    public void recordLoginSuccess(String staffId, String clientIp) {
+        String id = normalize(staffId);
+        if (id == null) return;
+        attemptRepo.deleteByStaffIdAndClientIp(id, ip(clientIp));
     }
 
     @Override
     @Transactional
     public boolean updateEnabled(String staffId, boolean enabled) {
         String id = normalize(staffId);
-        return id != null && jpaRepo.updateEnabled(id, enabled) > 0;
+        if (id == null) return false;
+        boolean found = jpaRepo.updateEnabled(id, enabled) > 0;
+        if (found) {
+            attemptRepo.deleteByStaffId(id);
+        }
+        return found;
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public long countEnabledByRole(StaffRole role) {
-        return jpaRepo.countByRoleAndEnabledTrue(role);
+    @Transactional
+    public long lockAndCountEnabledByRole(StaffRole role) {
+        return jpaRepo.findEnabledByRoleForUpdate(role).size();
+    }
+
+    private static String ip(String clientIp) {
+        String value = (clientIp == null || clientIp.isBlank()) ? "unknown" : clientIp.trim();
+        return value.length() > 64 ? value.substring(0, 64) : value;
     }
 
     private static String normalize(String staffId) {

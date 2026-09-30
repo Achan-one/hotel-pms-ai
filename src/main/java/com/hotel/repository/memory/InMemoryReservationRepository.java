@@ -56,6 +56,31 @@ public class InMemoryReservationRepository implements ReservationRepository {
     }
 
     @Override
+    public List<Reservation> findByCheckInDateBetween(LocalDate from, LocalDate to) {
+        if (from == null || to == null) {
+            return List.of();
+        }
+        return store.values().stream()
+                .filter(r -> r.getCheckInDate() != null
+                        && !r.getCheckInDate().isBefore(from) && !r.getCheckInDate().isAfter(to))
+                .sorted(Comparator.comparing(Reservation::getReservationId))
+                .toList();
+    }
+
+    @Override
+    public List<Reservation> findStayingBetween(LocalDate from, LocalDate to) {
+        if (from == null || to == null) {
+            return List.of();
+        }
+        return store.values().stream()
+                .filter(r -> r.getStatus() != ReservationStatus.CANCELLED)
+                .filter(r -> r.getCheckInDate() != null && !r.getCheckInDate().isAfter(to))
+                .filter(r -> r.getEffectiveCheckOutDate().isAfter(from))
+                .sorted(Comparator.comparing(Reservation::getReservationId))
+                .toList();
+    }
+
+    @Override
     public List<Reservation> findByCheckInDate(LocalDate checkInDate) {
         if (checkInDate == null) {
             return List.of();

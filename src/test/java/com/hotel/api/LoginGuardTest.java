@@ -48,13 +48,23 @@ class LoginGuardTest {
 
     @BeforeEach
     void resetFixtures() {
-        // 저장할 때마다 실패 횟수와 잠금, 활성 상태가 초기값으로 돌아간다.
         staffRepository.save(new StaffAccount(STAFF_ID, passwordEncoder.encode(PASSWORD), "가드 테스트", StaffRole.ROLE_STAFF));
         staffRepository.save(new StaffAccount("guard-admin", passwordEncoder.encode(PASSWORD), "가드 관리자", StaffRole.ROLE_ADMIN));
+        // 활성 상태로 되돌리면서 이전 테스트가 남긴 실패 기록과 잠금도 함께 지운다.
+        staffRepository.updateEnabled(STAFF_ID, true);
+        staffRepository.updateEnabled("guard-admin", true);
     }
 
     private ResultActions login(String staffId, String password) throws Exception {
+        return loginFrom("127.0.0.1", staffId, password);
+    }
+
+    private ResultActions loginFrom(String clientIp, String staffId, String password) throws Exception {
         return mockMvc.perform(post("/api/auth/login")
+                .with(request -> {
+                    request.setRemoteAddr(clientIp);
+                    return request;
+                })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(String.format("{\"staffId\":\"%s\",\"password\":\"%s\"}", staffId, password)));
     }
@@ -103,6 +113,26 @@ class LoginGuardTest {
                 .andExpect(status().isOk());
 
         login(STAFF_ID, PASSWORD).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("[로그인 잠금] 한 IP에서 잠겨도 다른 IP에서는 같은 계정으로 로그인할 수 있다")
+    void lockIsScopedToClientIp() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            loginFrom("203.0.113.7", STAFF_ID, "wrong-password").andExpect(status().isUnauthorized());
+        }
+
+        loginFrom("203.0.113.7", STAFF_ID, PASSWORD).andExpect(status().isUnauthorized());
+        loginFrom("198.51.100.20", STAFF_ID, PASSWORD).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("[로그인 잠금] 없는 ID로 틀려도 기록이 쌓이지 않고 같은 응답이다")
+    void unknownAccountsLeaveNoAttemptRows() throws Exception {
+        for (int i = 0; i < 6; i++) {
+            login("ghost-" + i, "whatever-123").andExpect(status().isUnauthorized());
+        }
+        login("ghost-0", "whatever-123").andExpect(status().isUnauthorized());
     }
 
     @Test

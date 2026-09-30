@@ -36,7 +36,7 @@ class AuthServiceAdminGuardTest {
     void lastActiveAdminCannotBeDisabled() {
         when(staffRepository.findByStaffId("only-admin"))
                 .thenReturn(Optional.of(new StaffAccount("only-admin", "h", "관리자", StaffRole.ROLE_ADMIN)));
-        when(staffRepository.countEnabledByRole(StaffRole.ROLE_ADMIN)).thenReturn(1L);
+        when(staffRepository.lockAndCountEnabledByRole(StaffRole.ROLE_ADMIN)).thenReturn(1L);
 
         assertThrows(IllegalArgumentException.class,
                 () -> authService.setStaffEnabled("someone-else", "only-admin", false));
@@ -48,7 +48,7 @@ class AuthServiceAdminGuardTest {
     void adminCanBeDisabledWhenAnotherRemains() {
         when(staffRepository.findByStaffId("admin-b"))
                 .thenReturn(Optional.of(new StaffAccount("admin-b", "h", "관리자B", StaffRole.ROLE_ADMIN)));
-        when(staffRepository.countEnabledByRole(StaffRole.ROLE_ADMIN)).thenReturn(2L);
+        when(staffRepository.lockAndCountEnabledByRole(StaffRole.ROLE_ADMIN)).thenReturn(2L);
 
         authService.setStaffEnabled("admin-a", "admin-b", false);
 

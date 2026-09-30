@@ -152,17 +152,88 @@ class ReportExportServiceTest {
     }
 
     @Test
-    @DisplayName("[재실자 리포트] 연박 투숙객의 투숙 일차(2일차)가 계산되고 CSV로 출력되어야 한다")
-    void getInHouseGuestListAndExportCsv_Success() {
-        List<InHouseGuestDto> inHouse = reportExportService.getInHouseGuestList(today);
-        assertEquals(1, inHouse.size());
+    @DisplayName("[숙박자 리포트] 하루만 조회하면 그날 밤 묵는 사람이 나온다. 그날 퇴실하는 사람과 취소 건은 나오지 않는다")
+    void getInHouseGuestList_SingleDay() {
+        List<InHouseGuestDto> list = reportExportService.getInHouseGuestList(today, today);
 
-        InHouseGuestDto guest = inHouse.get(0);
-        assertEquals("0301", guest.roomNumber());
-        assertEquals(2, guest.currentStayDay(), "어제 입실한 3박 투숙객의 오늘 일차는 2일차여야 합니다.");
+        // 9/21 밤: 연박 중인 Tanaka(0301)와 오늘 도착하는 미배정 Alice. 오늘 퇴실하는 Suzuki와 취소된 Bob은 제외.
+        assertEquals(List.of("RSV-STAY-01", "RSV-ARR-01"),
+                list.stream().map(InHouseGuestDto::reservationId).toList());
 
-        String csv = reportExportService.exportInHouseGuestListToCsv(today);
-        assertTrue(csv.contains("0301,3,Tanaka,RSV-STAY-01,모더레이트 더블,2026-09-20,2026-09-23,2일차,3"));
+        InHouseGuestDto stay = list.get(0);
+        assertEquals("0301", stay.roomNumber());
+        assertEquals(2, stay.currentStayDay(), "어제 입실한 3박 투숙객의 오늘 일차는 2일차여야 합니다.");
+        assertEquals(1, stay.nightsInRange());
+
+        InHouseGuestDto arrival = list.get(1);
+        assertNull(arrival.roomNumber(), "객실이 없으면 미배정으로 나와야 합니다.");
+        assertEquals(1, arrival.currentStayDay());
+    }
+
+    @Test
+    @DisplayName("[숙박자 리포트] 기간으로 조회하면 그 기간에 하룻밤이라도 묵는 사람이 모두 나오고, 기간 내 숙박 수가 계산된다")
+    void getInHouseGuestList_Range() {
+        List<InHouseGuestDto> list = reportExportService.getInHouseGuestList(yesterday, today.plusDays(1));
+
+        assertEquals(List.of("RSV-STAY-01", "RSV-DEP-01", "RSV-ARR-01"),
+                list.stream().map(InHouseGuestDto::reservationId).toList());
+        // Tanaka: 9/20~9/23 중 조회 기간(9/20~9/22)에 묵는 밤은 9/20, 9/21, 9/22
+        assertEquals(3, list.get(0).nightsInRange());
+        // Suzuki: 9/20 하룻밤
+        assertEquals(1, list.get(1).nightsInRange());
+        // Alice: 9/21~9/23 중 9/21, 9/22
+        assertEquals(2, list.get(2).nightsInRange());
+    }
+
+    @Test
+    @DisplayName("[숙박자 리포트] 조회 시작일이 퇴실일과 같으면 그 사람은 그날 밤 숙박이 아니라서 나오지 않는다")
+    void getInHouseGuestList_CheckOutDayIsNotAStayNight() {
+        List<InHouseGuestDto> list = reportExportService.getInHouseGuestList(today, today);
+
+        assertTrue(list.stream().noneMatch(g -> g.reservationId().equals("RSV-DEP-01")));
+    }
+
+    @Test
+    @DisplayName("[숙박자 리포트] 과거 날짜를 조회해도 이미 퇴실한 사람이 그날 묵었다면 나온다")
+    void getInHouseGuestList_IncludesGuestsWhoAlreadyCheckedOut() {
+        Reservation past = new Reservation("RSV-PAST-01", "Kato", RoomType.MODERATE_DOUBLE,
+                yesterday.minusDays(5), 2, 1, null, GuestPreference.empty(), null, null, null, null, null);
+        past.assignRoom("0401");
+        past.checkIn();
+        past.checkOut(yesterday.minusDays(3));
+        reservationRepository.save(past);
+
+        List<InHouseGuestDto> list = reportExportService.getInHouseGuestList(yesterday.minusDays(5), yesterday.minusDays(5));
+
+        assertEquals(List.of("RSV-PAST-01"), list.stream().map(InHouseGuestDto::reservationId).toList());
+        assertEquals(com.hotel.domain.ReservationStatus.CHECKED_OUT, list.get(0).status());
+    }
+
+    @Test
+    @DisplayName("[숙박자 리포트] 미래 날짜도 조회할 수 있다")
+    void getInHouseGuestList_FutureDatesAllowed() {
+        List<InHouseGuestDto> list = reportExportService.getInHouseGuestList(today.plusDays(1), today.plusDays(1));
+
+        assertEquals(List.of("RSV-STAY-01", "RSV-ARR-01"),
+                list.stream().map(InHouseGuestDto::reservationId).toList());
+    }
+
+    @Test
+    @DisplayName("[숙박자 리포트] CSV에는 상태와 미배정 표기, 조회기간 내 숙박수가 들어간다")
+    void exportInHouseGuestListToCsv_Columns() {
+        String csv = reportExportService.exportInHouseGuestListToCsv(today, today);
+
+        assertTrue(csv.startsWith("호실,층,투숙객명,예약ID,객실타입,상태,체크인,체크아웃,투숙일차(조회시작일 기준),총박수,조회기간내숙박수\r\n"));
+        assertTrue(csv.contains("0301,3,Tanaka,RSV-STAY-01,모더레이트 더블,투숙중,2026-09-20,2026-09-23,2일차,3,1"));
+        assertTrue(csv.contains("미배정,,Alice,RSV-ARR-01"));
+    }
+
+    @Test
+    @DisplayName("[숙박자 리포트] 시작일이 종료일보다 늦거나 31일을 넘기면 거부한다")
+    void getInHouseGuestList_RejectsInvalidRange() {
+        assertThrows(IllegalArgumentException.class, () -> reportExportService.getInHouseGuestList(today.plusDays(1), today));
+        assertThrows(IllegalArgumentException.class, () -> reportExportService.getInHouseGuestList(today, today.plusDays(31)));
+        assertDoesNotThrow(() -> reportExportService.getInHouseGuestList(today, today.plusDays(30)));
     }
 
     @Test
@@ -197,14 +268,63 @@ class ReportExportServiceTest {
     }
 
     @Test
-    @DisplayName("[예약 원장 CSV] 전체 덤프 방어 정책을 통과한 조건부 조회가 CSV로 출력되어야 한다")
-    void exportReservationsToCsv_Success() {
-        ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, today, null, 2, null, null, null,null,null
-        );
-        String csv = reportExportService.exportReservationsToCsv(condition);
+    @DisplayName("[예약자 리포트] 같은 날짜를 시작과 끝으로 넣으면 그날 체크인한 예약만 나온다")
+    void exportReservationsToCsv_SingleDay() {
+        String csv = reportExportService.exportReservationsToCsv(today, today, null, true);
 
-        assertTrue(csv.contains("예약번호,고객명,객실타입,체크인,박수,배정호실,상태,요청사항\r\n"));
-        assertTrue(csv.contains("RSV-ARR-01,Alice,슈페리얼 트윈"));
+        assertTrue(csv.contains("RSV-ARR-01,Alice"));
+        assertTrue(csv.contains("RSV-CAN-01,Bob"), "취소 건도 상태로 구분되어 나온다");
+        assertFalse(csv.contains("RSV-STAY-01"), "어제 체크인한 예약은 나오지 않는다");
+        assertFalse(csv.contains("RSV-DEP-01"));
+    }
+
+    @Test
+    @DisplayName("[예약자 리포트] 기간으로 넣으면 그 기간에 체크인하는 예약이 모두 나온다")
+    void exportReservationsToCsv_Range() {
+        String csv = reportExportService.exportReservationsToCsv(yesterday, today, null, true);
+
+        assertTrue(csv.contains("RSV-STAY-01"));
+        assertTrue(csv.contains("RSV-DEP-01"));
+        assertTrue(csv.contains("RSV-ARR-01"));
+        assertTrue(csv.contains("RSV-CAN-01"));
+    }
+
+    @Test
+    @DisplayName("[예약자 리포트] 상태 필터를 주면 그 상태만 나온다")
+    void exportReservationsToCsv_StatusFilter() {
+        String csv = reportExportService.exportReservationsToCsv(yesterday, today, com.hotel.domain.ReservationStatus.CANCELLED, true);
+
+        assertTrue(csv.contains("RSV-CAN-01"));
+        assertFalse(csv.contains("RSV-ARR-01"));
+    }
+
+    @Test
+    @DisplayName("[예약자 리포트] 예약의 전체 정보(채널, 결제, 태그, 잔액 등)가 컬럼으로 나온다")
+    void exportReservationsToCsv_FullInformation() {
+        String csv = reportExportService.exportReservationsToCsv(yesterday, yesterday, null, true);
+
+        assertTrue(csv.startsWith("예약번호,고객명,OTA원본고객명,객실타입,체크인,체크아웃,박수,배정호실,이전호실,상태,실제퇴실일,"
+                + "예약채널,채널예약번호,플랜명,조식,조식인원,결제유형,총청구,총수납,잔액,도착예정시각,레이트체크아웃,희망태그,기피태그,고객요청,내부메모\r\n"));
+        // Tanaka: 사전결제 300,000 청구, 수납 0 → 잔액 300,000
+        assertTrue(csv.contains("RSV-STAY-01,Tanaka,Tanaka,모더레이트 더블,2026-09-20,2026-09-23,3,0301,,투숙중,,DIRECT,"));
+        assertTrue(csv.contains(",사전 카드 결제,300000,0,300000,"));
+    }
+
+    @Test
+    @DisplayName("[예약자 리포트] 내부 메모는 권한이 없으면 비워서 내려간다")
+    void exportReservationsToCsv_HidesStaffMemoWhenNotAllowed() {
+        Reservation withMemo = reservationRepository.findById("RSV-ARR-01").orElseThrow();
+        withMemo.updateOperationalDetails(null, null, null, "VIP 응대 필요");
+        reservationRepository.save(withMemo);
+
+        assertTrue(reportExportService.exportReservationsToCsv(today, today, null, true).contains("VIP 응대 필요"));
+        assertFalse(reportExportService.exportReservationsToCsv(today, today, null, false).contains("VIP 응대 필요"));
+    }
+
+    @Test
+    @DisplayName("[예약자 리포트] 기간이 잘못되면 거부한다")
+    void exportReservationsToCsv_RejectsInvalidRange() {
+        assertThrows(IllegalArgumentException.class, () -> reportExportService.exportReservationsToCsv(today, yesterday, null, true));
+        assertThrows(IllegalArgumentException.class, () -> reportExportService.exportReservationsToCsv(today, today.plusDays(31), null, true));
     }
 }

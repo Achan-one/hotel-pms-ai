@@ -13,6 +13,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -83,8 +84,9 @@ public class TagController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_STAFF')")
-    public ResponseEntity<ApiResponse<Void>> registerCustomTag(@Valid @RequestBody TagRegisterRequest request) {
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> registerCustomTag(@Valid @RequestBody TagRegisterRequest request,
+                                                               Authentication authentication) {
         RoomTag newTag = new RoomTag(
                 normalizeCode(request.code()),
                 request.name().trim(),
@@ -95,7 +97,10 @@ public class TagController {
                 false
         );
 
-        tagRoomMappingService.registerCustomTag(newTag, request.targetRoomNumbers());
+        // 권한은 위의 @PreAuthorize와 SecurityConfig가 막고, 서비스 계층 검사에도 실제 인증 결과를 넘긴다.
+        boolean isAdmin = authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        tagRoomMappingService.registerCustomTag(isAdmin, newTag, request.targetRoomNumbers());
 
         return ResponseEntity.ok(ApiResponse.ok(
                 String.format("[%s] 커스텀 태그가 등록되었으며 AI 사전에 즉시 반영되었습니다.", newTag.name()),

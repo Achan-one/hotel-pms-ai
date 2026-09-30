@@ -26,6 +26,17 @@ public interface ReservationRepository {
 
     List<Reservation> findByCheckInDate(LocalDate checkInDate);
 
+    /**
+     * 체크인 일자가 [from, to] (양끝 포함)에 드는 예약을 예약 ID 순으로 돌려준다. 취소 건도 포함한다.
+     */
+    List<Reservation> findByCheckInDateBetween(LocalDate from, LocalDate to);
+
+    /**
+     * [from, to] (양끝 포함) 중 하룻밤이라도 숙박하는 예약을 예약 ID 순으로 돌려준다. 취소 건은 제외한다.
+     * 숙박은 [체크인, 실제 퇴실일) 구간의 밤으로 센다. 그래서 from에 퇴실하는 사람은 그 전날 밤 숙박이라 from 조회에 잡히지 않는다.
+     */
+    List<Reservation> findStayingBetween(LocalDate from, LocalDate to);
+
     List<Reservation> findByStayNights(int stayNights);
 
     List<Reservation> findUnassignedByCheckInDate(LocalDate checkInDate);

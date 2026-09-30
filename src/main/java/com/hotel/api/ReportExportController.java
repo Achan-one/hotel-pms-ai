@@ -1,12 +1,12 @@
 package com.hotel.api;
 
 import com.hotel.domain.ReservationStatus;
-import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.HotelOperationService;
 import com.hotel.service.report.ReportExportService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URLEncoder;
@@ -29,47 +29,44 @@ public class ReportExportController {
 
     /**
      * 1. 숙박자(In-House) 리스트 CSV 다운로드
+     * startDate~endDate 중 하룻밤이라도 묵는 사람. endDate를 생략하면 startDate 하루만 조회한다.
+     * targetDate는 단일 날짜를 넘기던 기존 호출을 위한 별칭이다.
      */
     @GetMapping("/in-house/csv")
     public ResponseEntity<byte[]> downloadInHouseGuestsCsv(
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
             @RequestParam(required = false) String targetDate) {
-        LocalDate businessDate = hotelOperationService.getCurrentBusinessDate();
-        LocalDate date = (targetDate != null && !targetDate.isBlank())
-                ? LocalDate.parse(targetDate) : businessDate;
+        LocalDate from = parseDateOrDefault(startDate != null && !startDate.isBlank() ? startDate : targetDate);
+        LocalDate to = (endDate != null && !endDate.isBlank()) ? LocalDate.parse(endDate.trim()) : from;
 
-        // 아직 오지 않은 날짜의 투숙객 명단은 없으므로 영업일을 넘기지 않는다.
-        if (date.isAfter(businessDate)) {
-            date = businessDate;
-        }
-
-        String csvString = reportExportService.exportInHouseGuestListToCsv(date);
+        String csvString = reportExportService.exportInHouseGuestListToCsv(from, to);
         byte[] csvBytes = withBom(csvString);
 
-        String fileName = URLEncoder.encode("숙박자리스트_" + date + ".csv", StandardCharsets.UTF_8).replace("+", "%20");
+        String fileName = URLEncoder.encode("숙박자리스트_" + periodLabel(from, to) + ".csv", StandardCharsets.UTF_8).replace("+", "%20");
         return createCsvResponse(csvBytes, fileName);
     }
 
     /**
      * 2. 예약자(Bookings) 리스트 CSV 다운로드
+     * 체크인 일자가 startDate~endDate에 드는 예약의 전체 정보. endDate를 생략하면 startDate 하루만 조회한다.
      */
     @GetMapping("/reservations/csv")
     public ResponseEntity<byte[]> downloadReservationsCsv(
             @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String status) {
-        LocalDate start = (startDate != null && !startDate.isBlank())
-                ? LocalDate.parse(startDate) : hotelOperationService.getCurrentBusinessDate();
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String status,
+            Authentication authentication) {
+        LocalDate from = parseDateOrDefault(startDate);
+        LocalDate to = (endDate != null && !endDate.isBlank()) ? LocalDate.parse(endDate.trim()) : from;
 
         ReservationStatus resStatus = (status != null && !status.isBlank())
-                ? ReservationStatus.valueOf(status.toUpperCase()) : null;
+                ? ReservationStatus.valueOf(status.trim().toUpperCase()) : null;
 
-        ReservationSearchCondition condition = new ReservationSearchCondition(
-                null, null, start, null, null, null, resStatus, null, null,null
-        );
-
-        String csvString = reportExportService.exportReservationsToCsv(condition);
+        String csvString = reportExportService.exportReservationsToCsv(from, to, resStatus, canSeeStaffMemo(authentication));
         byte[] csvBytes = withBom(csvString);
 
-        String fileName = URLEncoder.encode("예약자리스트_" + start + ".csv", StandardCharsets.UTF_8).replace("+", "%20");
+        String fileName = URLEncoder.encode("예약자리스트_" + periodLabel(from, to) + ".csv", StandardCharsets.UTF_8).replace("+", "%20");
         return createCsvResponse(csvBytes, fileName);
     }
 
@@ -111,6 +108,21 @@ public class ReportExportController {
 
         String fileName = URLEncoder.encode("태그별_보유객실매핑_매트릭스.csv", StandardCharsets.UTF_8).replace("+", "%20");
         return createCsvResponse(csvBytes, fileName);
+    }
+
+    private LocalDate parseDateOrDefault(String value) {
+        return (value != null && !value.isBlank())
+                ? LocalDate.parse(value.trim()) : hotelOperationService.getCurrentBusinessDate();
+    }
+
+    private static String periodLabel(LocalDate from, LocalDate to) {
+        return from.equals(to) ? from.toString() : from + "_" + to;
+    }
+
+    // 내부 인계 메모는 아르바이트(PART_TIME)에게는 내려주지 않는다.
+    private static boolean canSeeStaffMemo(Authentication authentication) {
+        return authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_STAFF"));
     }
 
     private byte[] withBom(String content) {

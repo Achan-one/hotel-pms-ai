@@ -35,13 +35,13 @@ public class TagRoomMappingService {
         this.roomRepository = Objects.requireNonNull(roomRepository);
     }
 
-    public void registerCustomTag(RoomTag tag, Collection<String> roomNumbers) {
+    public void registerCustomTag(boolean isAdmin, RoomTag tag, Collection<String> roomNumbers) {
         if (tagRepository.findByCode(tag.code()).isPresent()) {
             throw new DuplicateResourceException("이미 존재하는 태그 코드입니다: " + tag.code());
         }
-        Set<String> targets = requireExistingRooms(roomNumbers);
+        Set<String> targets = requireExistingRooms(roomNumbers, roomRepository.findAll());
 
-        adminTagService.registerTag(true, tag);
+        adminTagService.registerTag(isAdmin, tag);
         targets.forEach(roomNumber -> roomRepository.addTag(roomNumber, tag.code()));
     }
 
@@ -58,7 +58,8 @@ public class TagRoomMappingService {
 
     public RoomTag replaceRoomMapping(String tagCode, Collection<String> roomNumbers) {
         RoomTag tag = requireTag(tagCode);
-        applyMapping(tag.code(), requireExistingRooms(roomNumbers));
+        List<Room> allRooms = roomRepository.findAll();
+        applyMapping(tag.code(), requireExistingRooms(roomNumbers, allRooms), allRooms);
         return tag;
     }
 
@@ -67,17 +68,19 @@ public class TagRoomMappingService {
      */
     public RoomTag updateTag(String tagCode, RoomTag updatedCustomTag, Collection<String> roomNumbers) {
         RoomTag existing = requireTag(tagCode);
-        Set<String> targets = requireExistingRooms(roomNumbers);
+        List<Room> allRooms = roomRepository.findAll();
+        Set<String> targets = requireExistingRooms(roomNumbers, allRooms);
 
         if (!existing.isSystemDefault() && updatedCustomTag != null) {
             tagRepository.save(updatedCustomTag);
         }
-        applyMapping(existing.code(), targets);
+        applyMapping(existing.code(), targets, allRooms);
         return existing;
     }
 
-    private void applyMapping(String tagCode, Set<String> desiredRooms) {
-        Set<String> currentHolders = roomRepository.findAll().stream()
+    // 바뀌는 객실만 잠그고 저장한다. 이미 원하는 상태인 객실은 건드리지 않는다.
+    private void applyMapping(String tagCode, Set<String> desiredRooms, List<Room> allRooms) {
+        Set<String> currentHolders = allRooms.stream()
                 .filter(room -> room.hasTag(tagCode))
                 .map(Room::getRoomNumber)
                 .collect(Collectors.toSet());
@@ -99,15 +102,16 @@ public class TagRoomMappingService {
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 태그입니다: " + tagCode));
     }
 
-    private Set<String> requireExistingRooms(Collection<String> roomNumbers) {
+    private Set<String> requireExistingRooms(Collection<String> roomNumbers, List<Room> allRooms) {
         if (roomNumbers == null) {
             return Set.of();
         }
+        Set<String> known = allRooms.stream().map(Room::getRoomNumber).collect(Collectors.toSet());
         Set<String> normalized = new LinkedHashSet<>();
         List<String> missing = new ArrayList<>();
         for (String raw : roomNumbers) {
             String roomNumber = normalizeRoomNumber(raw);
-            if (roomNumber.isEmpty() || roomRepository.findByRoomNumber(roomNumber).isEmpty()) {
+            if (roomNumber.isEmpty() || !known.contains(roomNumber)) {
                 missing.add(raw);
             } else {
                 normalized.add(roomNumber);
