@@ -1,6 +1,7 @@
 package com.hotel.api;
 
 import com.hotel.api.dto.ApiResponse;
+import com.hotel.service.BatchOperationGuard;
 import com.hotel.service.ReservationLockService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -14,9 +15,11 @@ import java.util.Optional;
 public class ReservationLockController {
 
     private final ReservationLockService lockService;
+    private final BatchOperationGuard batchGuard;
 
-    public ReservationLockController(ReservationLockService lockService) {
+    public ReservationLockController(ReservationLockService lockService, BatchOperationGuard batchGuard) {
         this.lockService = lockService;
+        this.batchGuard = batchGuard;
     }
 
     public record LockRequest(String staffName) {}
@@ -29,6 +32,11 @@ public class ReservationLockController {
             @PathVariable String reservationId,
             @RequestBody(required = false) LockRequest request,
             Authentication auth) {
+
+        var batch = batchGuard.current();
+        if (batch.isPresent()) {
+            return ResponseEntity.ok(ApiResponse.ok(batch.get().describe(), batchLockedBody(batch.get())));
+        }
 
         String staffId = auth != null ? auth.getName() : "anonymous";
         String staffName = (request != null && request.staffName() != null && !request.staffName().isBlank())
@@ -61,6 +69,11 @@ public class ReservationLockController {
             @PathVariable String reservationId,
             Authentication auth) {
 
+        var batch = batchGuard.current();
+        if (batch.isPresent()) {
+            return ResponseEntity.ok(ApiResponse.ok(batchLockedBody(batch.get())));
+        }
+
         String currentStaffId = auth != null ? auth.getName() : "";
         Optional<ReservationLockService.LockInfo> lockOpt = lockService.getLockInfo(reservationId);
 
@@ -89,5 +102,15 @@ public class ReservationLockController {
         String staffId = auth != null ? auth.getName() : "";
         lockService.releaseLock(reservationId, staffId);
         return ResponseEntity.ok(ApiResponse.ok("편집 락이 해제되었습니다.", null));
+    }
+
+    // 일괄 작업 중에는 모든 예약이 그 작업에 잠긴 것으로 응답해 화면이 읽기 전용으로 열리게 한다.
+    private Map<String, Object> batchLockedBody(BatchOperationGuard.Active active) {
+        return Map.of(
+                "isLockedByOther", true,
+                "lockedByStaffId", active.staffId(),
+                "lockedByStaffName", active.label() + " 진행 중",
+                "lockedByBatch", true
+        );
     }
 }

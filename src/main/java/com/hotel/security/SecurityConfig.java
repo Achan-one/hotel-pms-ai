@@ -89,10 +89,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/tags", "/api/admin/tags/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 4. 룸 인디케이터
-                        .requestMatchers(HttpMethod.GET, "/api/rooms/indicator").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
+                        .requestMatchers(HttpMethod.GET, "/api/rooms/indicator", "/api/rooms/tag-catalog").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 5. 배정, 룸 체인지, 오버라이드 및 요금 스케줄 갱신
-                        .requestMatchers(HttpMethod.POST, "/api/reservations/batch-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/batch-assign", "/api/reservations/batch-unassign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/room-change").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/manual-assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.DELETE, "/api/reservations/*/assign").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")

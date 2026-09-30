@@ -228,6 +228,8 @@ public class Reservation {
     public LocalDate getContractCheckInDate() { return contractCheckInDate; }
     public int getContractStayNights() { return contractStayNights; }
     public String getRawRequestText() { return rawRequestText; }
+    // OTA 전문 원문은 어떤 API 응답에도 실리지 않도록 직렬화에서 뺀다. 저장소는 이 값을 직접 읽는다.
+    @JsonIgnore
     public String getRawXmlPayload() { return rawXmlPayload; }
     public String getOperationalGuestName() { return operationalGuestName; }
     public LocalDate getOperationalCheckInDate() { return operationalCheckInDate; }

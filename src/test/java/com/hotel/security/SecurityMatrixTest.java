@@ -80,6 +80,7 @@ class SecurityMatrixTest {
                 Arguments.of(HttpMethod.POST, "/api/admin/tags", part),
                 Arguments.of(HttpMethod.DELETE, "/api/admin/tags/ANY", part),
                 Arguments.of(HttpMethod.POST, "/api/reservations/batch-assign", part),
+                Arguments.of(HttpMethod.POST, "/api/reservations/batch-unassign", part),
                 Arguments.of(HttpMethod.POST, "/api/reservations/R1/room-change", part),
                 Arguments.of(HttpMethod.POST, "/api/reservations/R1/manual-assign", part),
                 Arguments.of(HttpMethod.DELETE, "/api/reservations/R1/assign", part),

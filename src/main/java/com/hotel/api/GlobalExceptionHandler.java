@@ -37,6 +37,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.fail(e.getMessage()));
     }
 
+    @ExceptionHandler(com.hotel.service.BatchInProgressException.class)
+    public ResponseEntity<ApiResponse<Void>> batchInProgress(com.hotel.service.BatchInProgressException e) {
+        return ResponseEntity.status(HttpStatus.LOCKED).body(ApiResponse.fail(e.getMessage()));
+    }
+
     @ExceptionHandler(SecurityException.class)
     public ResponseEntity<ApiResponse<Void>> forbidden(SecurityException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.fail(e.getMessage()));

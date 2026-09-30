@@ -127,6 +127,34 @@ public class ReservationService {
         return result;
     }
 
+    /**
+     * 체크인 일자가 checkInDate인 예약 중 배정 완료(ASSIGNED) 상태인 것을 모두 미배정으로 되돌린다.
+     * 이미 체크인했거나 퇴실한 예약, 취소된 예약은 건드리지 않는다. 전체가 한 트랜잭션이라 중간에 실패하면 모두 되돌아간다.
+     */
+    public BatchUnassignResult runDailyBatchUnassign(LocalDate checkInDate) {
+        Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
+        List<Reservation> sameDay = reservationRepository.findByCheckInDate(checkInDate);
+
+        // 객실 잠금 순서를 방 번호 순으로 고정한다.
+        List<Reservation> targets = sameDay.stream()
+                .filter(r -> r.getStatus() == ReservationStatus.ASSIGNED)
+                .sorted(java.util.Comparator.comparing((Reservation r) -> r.getAssignedRoomNumber() == null ? "" : r.getAssignedRoomNumber())
+                        .thenComparing(Reservation::getReservationId))
+                .toList();
+        int keptInHouse = (int) sameDay.stream()
+                .filter(r -> r.getStatus() == ReservationStatus.CHECKED_IN || r.getStatus() == ReservationStatus.CHECKED_OUT)
+                .count();
+
+        List<String> released = new ArrayList<>();
+        for (Reservation reservation : targets) {
+            releaseRoomSchedule(reservation);
+            reservation.cancelAssignment();
+            reservationRepository.save(reservation);
+            released.add(reservation.getReservationId());
+        }
+        return new BatchUnassignResult(checkInDate, List.copyOf(released), keptInHouse);
+    }
+
     public void processCheckIn(String reservationId) {
         Reservation reservation = findReservationOrThrow(reservationId);
         if (!reservation.isAssigned()) {
@@ -465,9 +493,14 @@ public class ReservationService {
     private void releaseRoomSchedule(Reservation reservation) {
         String roomNumber = reservation.getAssignedRoomNumber();
         if (roomNumber != null) {
-            StayPeriod stayPeriod = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
+            // 0박으로 이월된 예약은 룸 랙에 잡힌 스케줄이 없다. 기간을 만들려 하면 예외가 나므로 건너뛴다.
+            StayPeriod stayPeriod = reservation.getStayNights() >= 1
+                    ? new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights())
+                    : null;
             roomRepository.findByRoomNumberForUpdate(roomNumber).ifPresent(room -> {
-                room.cancelPeriod(stayPeriod);
+                if (stayPeriod != null) {
+                    room.cancelPeriod(stayPeriod);
+                }
                 if (!room.isAssigned() && room.getStatus() == RoomStatus.ASSIGNED) {
                     room.setStatus(RoomStatus.VACANT);
                 }

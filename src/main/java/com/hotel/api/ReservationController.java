@@ -6,6 +6,8 @@ import com.hotel.api.dto.ReservationResponse;
 import com.hotel.api.dto.RoomChangeApiRequest;
 import com.hotel.domain.Reservation;
 import com.hotel.service.BatchAssignmentResult;
+import com.hotel.service.BatchOperationGuard;
+import com.hotel.service.BatchUnassignResult;
 import com.hotel.service.NightAuditService;
 import com.hotel.service.ReservationService;
 import com.hotel.service.HotelOperationService;
@@ -30,12 +32,16 @@ public class ReservationController {
     private final NightAuditService nightAuditService;
     private final HotelOperationService hotelOperationService;
 
+    private final BatchOperationGuard batchGuard;
+
     public ReservationController(ReservationService reservationService,
                                  NightAuditService nightAuditService,
-                                 HotelOperationService hotelOperationService) {
+                                 HotelOperationService hotelOperationService,
+                                 BatchOperationGuard batchGuard) {
         this.reservationService = reservationService;
         this.nightAuditService = nightAuditService;
         this.hotelOperationService = hotelOperationService;
+        this.batchGuard = batchGuard;
     }
 
     public record TagOverrideApiRequest(
@@ -145,9 +151,45 @@ public class ReservationController {
 
     @PostMapping("/batch-assign")
     public ResponseEntity<ApiResponse<BatchAssignmentResult>> batchAssign(
-            @Valid @RequestBody BatchAssignApiRequest request) {
-        BatchAssignmentResult result = reservationService.runDailyBatchAssignment(request.checkInDate());
+            @Valid @RequestBody BatchAssignApiRequest request,
+            Authentication authentication) {
+        // 진행 중에는 다른 요청이 예약을 바꾸지 못한다(BatchLockInterceptor). 끝나거나 실패하면 반드시 풀린다.
+        BatchAssignmentResult result = batchGuard.runExclusive(
+                "BATCH_ASSIGN", "AI 일괄 자동 배정", authentication.getName(), request.checkInDate(),
+                () -> reservationService.runDailyBatchAssignment(request.checkInDate()));
         return ResponseEntity.ok(ApiResponse.ok("일괄 배정이 완료되었습니다.", result));
+    }
+
+    /**
+     * 선택한 체크인 일자의 배정 완료 예약을 일괄로 미배정으로 되돌린다.
+     */
+    @PostMapping("/batch-unassign")
+    public ResponseEntity<ApiResponse<BatchUnassignResult>> batchUnassign(
+            @Valid @RequestBody BatchAssignApiRequest request,
+            Authentication authentication) {
+        BatchUnassignResult result = batchGuard.runExclusive(
+                "BATCH_UNASSIGN", "일괄 배정 해제", authentication.getName(), request.checkInDate(),
+                () -> reservationService.runDailyBatchUnassign(request.checkInDate()));
+        return ResponseEntity.ok(ApiResponse.ok(
+                String.format("%s 체크인 예약 %d건의 배정을 해제했습니다.", request.checkInDate(), result.releasedCount()), result));
+    }
+
+    /**
+     * 일괄 작업 진행 여부. 프론트가 주기적으로 조회해 예약 화면을 읽기 전용으로 전환한다.
+     */
+    @GetMapping("/batch-status")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> batchStatus() {
+        var active = batchGuard.current();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("active", active.isPresent());
+        active.ifPresent(a -> {
+            body.put("operation", a.operation());
+            body.put("label", a.label());
+            body.put("staffId", a.staffId());
+            body.put("targetDate", a.targetDate().toString());
+            body.put("startedAt", a.startedAt().toString());
+        });
+        return ResponseEntity.ok(ApiResponse.ok(body));
     }
 
     @GetMapping("/{reservationId}")
