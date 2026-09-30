@@ -103,9 +103,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/reports/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 7. 시뮬레이터 및 나이트 오딧 실행
-                        // 시뮬레이션과 테스트 데이터 API는 dev 프로필에서만 존재하고, 데이터를 지우므로 관리자만 쓴다.
-                        .requestMatchers("/api/simulation/**").hasAuthority("ROLE_ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/reservations/generate-test-data").hasAuthority("ROLE_ADMIN")
+                        // 시뮬레이션과 테스트 데이터 API는 dev 프로필에서만 등록된다. 운영에는 빈 자체가 없어 404다.
+                        .requestMatchers("/api/simulation/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/generate-test-data").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/night-audit").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF")
 
                         // 8. 체크인/체크아웃 및 원장(Folio) 수납/청구 거래 분개

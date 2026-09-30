@@ -72,9 +72,6 @@ class SecurityMatrixTest {
                 Arguments.of(HttpMethod.PUT, "/api/system/business-date", part),
                 Arguments.of(HttpMethod.POST, "/api/accounting/charge-codes", staff),
                 Arguments.of(HttpMethod.DELETE, "/api/accounting/charge-codes/MINIBAR", part),
-                Arguments.of(HttpMethod.POST, "/api/simulation/clear", staff),
-                Arguments.of(HttpMethod.POST, "/api/simulation/reset-all-settings", part),
-                Arguments.of(HttpMethod.POST, "/api/reservations/generate-test-data", staff),
                 // 관리자와 정직원만
                 Arguments.of(HttpMethod.GET, "/api/system/unchecked-arrivals", part),
                 Arguments.of(HttpMethod.POST, "/api/system/rollover-unchecked-arrivals", part),
@@ -89,7 +86,11 @@ class SecurityMatrixTest {
                 Arguments.of(HttpMethod.PATCH, "/api/reservations/R1/operational-tags", part),
                 Arguments.of(HttpMethod.PUT, "/api/reservations/R1/daily-rates", part),
                 Arguments.of(HttpMethod.POST, "/api/reservations/night-audit", part),
-                Arguments.of(HttpMethod.GET, "/api/accounting/city-ledger", part)
+                Arguments.of(HttpMethod.GET, "/api/accounting/city-ledger", part),
+                // dev 전용 개발자 콘솔 API도 아르바이트는 쓸 수 없다
+                Arguments.of(HttpMethod.POST, "/api/simulation/clear", part),
+                Arguments.of(HttpMethod.POST, "/api/simulation/bulk-simulate-50-and-30", part),
+                Arguments.of(HttpMethod.POST, "/api/reservations/generate-test-data", part)
         );
     }
 
