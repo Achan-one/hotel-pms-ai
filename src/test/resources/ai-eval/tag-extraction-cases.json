@@ -1,0 +1,1064 @@
+{
+  "description": "AI 태그 추출 정확도 평가용 정답 데이터. 기본(시스템) 태그 7개만 사용한다. 정답은 사람이 라벨링했고, optional* 은 정답으로 인정하지도 감점하지도 않는 방어 가능한 추가 태그다.",
+  "cases": [
+    {
+      "id": "KO-001",
+      "lang": "ko",
+      "kind": "단일 선호",
+      "note": "고층 객실 부탁드립니다.",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-002",
+      "lang": "ko",
+      "kind": "단일 선호",
+      "note": "높은 층에서 도쿄 시내가 보였으면 좋겠어요.",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-003",
+      "lang": "ko",
+      "kind": "단일 선호",
+      "note": "조용한 방으로 주세요.",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-004",
+      "lang": "ko",
+      "kind": "단일 선호",
+      "note": "아기랑 같이 가서 소음이 없었으면 해요.",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-005",
+      "lang": "ko",
+      "kind": "복합",
+      "note": "어머니 무릎이 안 좋으셔서 엘리베이터 가깝고 낮은 층으로 부탁드립니다.",
+      "preferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "ACCESSIBLE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-006",
+      "lang": "ko",
+      "kind": "단일 선호",
+      "note": "휠체어를 사용합니다. 배리어프리 객실이 꼭 필요해요.",
+      "preferred": [
+        "ACCESSIBLE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-007",
+      "lang": "ko",
+      "kind": "암묵적 기피",
+      "note": "엘리베이터 소음이 걱정돼요.",
+      "preferred": [],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "QUIET_ZONE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-008",
+      "lang": "ko",
+      "kind": "단일 선호",
+      "note": "엘리베이터에서 멀리 떨어진 방이면 좋겠어요.",
+      "preferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": [
+        "NEAR_ELEVATOR"
+      ]
+    },
+    {
+      "id": "KO-009",
+      "lang": "ko",
+      "kind": "단일 선호",
+      "note": "코너룸이면 좋겠습니다. 창이 두 면이면 더 좋아요.",
+      "preferred": [
+        "CORNER_ROOM"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-010",
+      "lang": "ko",
+      "kind": "암묵적 기피",
+      "note": "계단이나 먼 복도는 걷기 힘들어요.",
+      "preferred": [],
+      "avoid": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-011",
+      "lang": "ko",
+      "kind": "명시적 기피",
+      "note": "10층 이상은 무서워서 싫어요.",
+      "preferred": [],
+      "avoid": [
+        "HIGH_FLOOR"
+      ],
+      "optionalPreferred": [
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-012",
+      "lang": "ko",
+      "kind": "복합",
+      "note": "저층으로 부탁드려요. 고층은 어지러워요.",
+      "preferred": [
+        "LOW_FLOOR"
+      ],
+      "avoid": [
+        "HIGH_FLOOR"
+      ],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-013",
+      "lang": "ko",
+      "kind": "무관",
+      "note": "체크인은 오후 10시쯤 될 것 같아요.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-014",
+      "lang": "ko",
+      "kind": "무관",
+      "note": "생일 케이크를 준비해 주실 수 있을까요?",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-015",
+      "lang": "ko",
+      "kind": "무관",
+      "note": "조식은 채식으로 부탁드립니다.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-016",
+      "lang": "ko",
+      "kind": "무관",
+      "note": "잘 부탁드립니다. 감사합니다.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-017",
+      "lang": "ko",
+      "kind": "명시적 기피",
+      "note": "엘리베이터 바로 앞 방은 절대 안 돼요. 시끄러워서 잠을 못 자요.",
+      "preferred": [],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "QUIET_ZONE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-018",
+      "lang": "ko",
+      "kind": "복합",
+      "note": "고층 코너룸을 원해요.",
+      "preferred": [
+        "CORNER_ROOM",
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-019",
+      "lang": "ko",
+      "kind": "복합",
+      "note": "조용하고 독립적인 코너 객실이면 좋겠어요.",
+      "preferred": [
+        "CORNER_ROOM",
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-020",
+      "lang": "ko",
+      "kind": "복합",
+      "note": "가능하면 높은 층에, 엘리베이터에서 먼 조용한 방으로 부탁드립니다.",
+      "preferred": [
+        "AWAY_FROM_ELEVATOR",
+        "HIGH_FLOOR",
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-021",
+      "lang": "ja",
+      "kind": "단일 선호",
+      "note": "高層階のお部屋をお願いします。",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-022",
+      "lang": "ja",
+      "kind": "단일 선호",
+      "note": "東京の街が見える高い階がいいです。",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-023",
+      "lang": "ja",
+      "kind": "단일 선호",
+      "note": "静かなお部屋を希望します。",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-024",
+      "lang": "ja",
+      "kind": "단일 선호",
+      "note": "赤ちゃんが一緒なので、騒音の少ない部屋をお願いします。",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-025",
+      "lang": "ja",
+      "kind": "복합",
+      "note": "母は膝が悪いので、エレベーターに近い低層階でお願いします。",
+      "preferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "ACCESSIBLE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-026",
+      "lang": "ja",
+      "kind": "단일 선호",
+      "note": "車椅子を使用します。バリアフリーの客室が必須です。",
+      "preferred": [
+        "ACCESSIBLE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-027",
+      "lang": "ja",
+      "kind": "암묵적 기피",
+      "note": "エレベーターの音が気になります。",
+      "preferred": [],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "QUIET_ZONE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-028",
+      "lang": "ja",
+      "kind": "단일 선호",
+      "note": "エレベーターから離れたお部屋がいいです。",
+      "preferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": [
+        "NEAR_ELEVATOR"
+      ]
+    },
+    {
+      "id": "JA-029",
+      "lang": "ja",
+      "kind": "단일 선호",
+      "note": "角部屋を希望します。窓が二面あると嬉しいです。",
+      "preferred": [
+        "CORNER_ROOM"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-030",
+      "lang": "ja",
+      "kind": "암묵적 기피",
+      "note": "階段や長い廊下を歩くのはつらいです。",
+      "preferred": [],
+      "avoid": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-031",
+      "lang": "ja",
+      "kind": "명시적 기피",
+      "note": "10階以上は怖いので避けたいです。",
+      "preferred": [],
+      "avoid": [
+        "HIGH_FLOOR"
+      ],
+      "optionalPreferred": [
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-032",
+      "lang": "ja",
+      "kind": "복합",
+      "note": "低層階でお願いします。高い所はめまいがします。",
+      "preferred": [
+        "LOW_FLOOR"
+      ],
+      "avoid": [
+        "HIGH_FLOOR"
+      ],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-033",
+      "lang": "ja",
+      "kind": "무관",
+      "note": "チェックインは夜10時ごろになります。",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-034",
+      "lang": "ja",
+      "kind": "무관",
+      "note": "誕生日ケーキを用意していただけますか？",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-035",
+      "lang": "ja",
+      "kind": "무관",
+      "note": "朝食はベジタリアン対応でお願いします。",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-036",
+      "lang": "ja",
+      "kind": "무관",
+      "note": "どうぞよろしくお願いいたします。",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-037",
+      "lang": "ja",
+      "kind": "명시적 기피",
+      "note": "エレベーターの真ん前の部屋は絶対に避けてください。うるさくて眠れません。",
+      "preferred": [],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "QUIET_ZONE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-038",
+      "lang": "ja",
+      "kind": "복합",
+      "note": "高層階の角部屋がいいです。",
+      "preferred": [
+        "CORNER_ROOM",
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-039",
+      "lang": "ja",
+      "kind": "복합",
+      "note": "静かで独立感のある角部屋を希望します。",
+      "preferred": [
+        "CORNER_ROOM",
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-040",
+      "lang": "ja",
+      "kind": "복합",
+      "note": "できれば高層階で、エレベーターから遠い静かな部屋をお願いします。",
+      "preferred": [
+        "AWAY_FROM_ELEVATOR",
+        "HIGH_FLOOR",
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-041",
+      "lang": "en",
+      "kind": "단일 선호",
+      "note": "A high floor room please.",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-042",
+      "lang": "en",
+      "kind": "단일 선호",
+      "note": "We would love a high floor with a nice view of Tokyo.",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-043",
+      "lang": "en",
+      "kind": "단일 선호",
+      "note": "Please give us a quiet room.",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-044",
+      "lang": "en",
+      "kind": "단일 선호",
+      "note": "We are traveling with a baby, so we need a room without noise.",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-045",
+      "lang": "en",
+      "kind": "복합",
+      "note": "My mother has bad knees, so a low floor close to the elevator would be great.",
+      "preferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "ACCESSIBLE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-046",
+      "lang": "en",
+      "kind": "단일 선호",
+      "note": "I use a wheelchair. An accessible room is a must.",
+      "preferred": [
+        "ACCESSIBLE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-047",
+      "lang": "en",
+      "kind": "암묵적 기피",
+      "note": "I am worried about elevator noise.",
+      "preferred": [],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "QUIET_ZONE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-048",
+      "lang": "en",
+      "kind": "단일 선호",
+      "note": "We would prefer a room far from the elevator.",
+      "preferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": [
+        "NEAR_ELEVATOR"
+      ]
+    },
+    {
+      "id": "EN-049",
+      "lang": "en",
+      "kind": "단일 선호",
+      "note": "A corner room would be perfect, ideally with windows on two sides.",
+      "preferred": [
+        "CORNER_ROOM"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-050",
+      "lang": "en",
+      "kind": "암묵적 기피",
+      "note": "Long corridors and stairs are hard for me to walk.",
+      "preferred": [],
+      "avoid": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "LOW_FLOOR",
+        "NEAR_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-051",
+      "lang": "en",
+      "kind": "명시적 기피",
+      "note": "Please avoid anything above the 10th floor. I am afraid of heights.",
+      "preferred": [],
+      "avoid": [
+        "HIGH_FLOOR"
+      ],
+      "optionalPreferred": [
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-052",
+      "lang": "en",
+      "kind": "복합",
+      "note": "A low floor please. High floors make me dizzy.",
+      "preferred": [
+        "LOW_FLOOR"
+      ],
+      "avoid": [
+        "HIGH_FLOOR"
+      ],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-053",
+      "lang": "en",
+      "kind": "무관",
+      "note": "We will arrive around 10 pm.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-054",
+      "lang": "en",
+      "kind": "무관",
+      "note": "Could you prepare a birthday cake for my wife?",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-055",
+      "lang": "en",
+      "kind": "무관",
+      "note": "Vegetarian breakfast, please.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-056",
+      "lang": "en",
+      "kind": "무관",
+      "note": "Thank you very much, looking forward to the stay.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-057",
+      "lang": "en",
+      "kind": "명시적 기피",
+      "note": "Definitely not next to the elevator. It is too loud and I cannot sleep.",
+      "preferred": [],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "QUIET_ZONE"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-058",
+      "lang": "en",
+      "kind": "복합",
+      "note": "A high floor corner room, please.",
+      "preferred": [
+        "CORNER_ROOM",
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-059",
+      "lang": "en",
+      "kind": "복합",
+      "note": "We would like a quiet, private corner room.",
+      "preferred": [
+        "CORNER_ROOM",
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-060",
+      "lang": "en",
+      "kind": "복합",
+      "note": "If possible, a high floor, far from the elevator, and quiet.",
+      "preferred": [
+        "AWAY_FROM_ELEVATOR",
+        "HIGH_FLOOR",
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-061",
+      "lang": "ko",
+      "kind": "함정",
+      "note": "고층은 아니어도 되는데 엘리베이터는 가까웠으면 좋겠어요.",
+      "preferred": [
+        "NEAR_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-062",
+      "lang": "ko",
+      "kind": "함정",
+      "note": "지난번에 엘리베이터 옆방이라 밤새 잠을 못 잤어요. 이번에는 제발 조용한 곳으로 부탁드려요.",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-063",
+      "lang": "ko",
+      "kind": "함정",
+      "note": "조식은 일식으로, 아이가 어려서 조용한 방이면 좋겠고 늦은 체크아웃도 가능할까요?",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-064",
+      "lang": "ko",
+      "kind": "함정",
+      "note": "엘리베이터 안에 우산을 두고 온 것 같은데 보관해 주실 수 있나요?",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-065",
+      "lang": "ko",
+      "kind": "함정",
+      "note": "가능하면 높은 층으로, 안 되면 아무 방이나 괜찮아요.",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-066",
+      "lang": "ko",
+      "kind": "함정",
+      "note": "도쿄타워가 보이는 방이면 최고예요.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [
+        "HIGH_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "KO-067",
+      "lang": "ko",
+      "kind": "함정",
+      "note": "휠체어는 아니지만 무릎이 안 좋아서 계단이 많은 곳은 피하고 싶습니다.",
+      "preferred": [
+        "ACCESSIBLE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-068",
+      "lang": "ja",
+      "kind": "함정",
+      "note": "高層階でなくても構いませんが、エレベーターの近くがいいです。",
+      "preferred": [
+        "NEAR_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-069",
+      "lang": "ja",
+      "kind": "함정",
+      "note": "前回、エレベーターの隣の部屋で一晩中眠れませんでした。今回はどうか静かな部屋をお願いします。",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-070",
+      "lang": "ja",
+      "kind": "함정",
+      "note": "朝食は和食で、子どもが小さいので静かな部屋を希望します。レイトチェックアウトも可能でしょうか。",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-071",
+      "lang": "ja",
+      "kind": "함정",
+      "note": "エレベーターに傘を忘れたかもしれません。保管していただけますか？",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-072",
+      "lang": "ja",
+      "kind": "함정",
+      "note": "できれば高い階を。難しければどの部屋でも大丈夫です。",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-073",
+      "lang": "ja",
+      "kind": "함정",
+      "note": "東京タワーが見える部屋だと最高です。",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [
+        "HIGH_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "JA-074",
+      "lang": "ja",
+      "kind": "함정",
+      "note": "車椅子ではありませんが、膝が悪いので階段の多い場所は避けたいです。",
+      "preferred": [
+        "ACCESSIBLE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-075",
+      "lang": "en",
+      "kind": "함정",
+      "note": "It doesn't have to be a high floor, but I'd like to be close to the elevator.",
+      "preferred": [
+        "NEAR_ELEVATOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-076",
+      "lang": "en",
+      "kind": "함정",
+      "note": "Last time our room was next to the elevator and we couldn't sleep at all. Please, somewhere quiet this time.",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [
+        "NEAR_ELEVATOR"
+      ],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-077",
+      "lang": "en",
+      "kind": "함정",
+      "note": "Japanese breakfast please. Our kid is little so a quiet room would be great. Is late checkout possible?",
+      "preferred": [
+        "QUIET_ZONE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "AWAY_FROM_ELEVATOR",
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-078",
+      "lang": "en",
+      "kind": "함정",
+      "note": "I think I left my umbrella in the elevator, could you keep it for me?",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-079",
+      "lang": "en",
+      "kind": "함정",
+      "note": "A high floor if possible, but any room is fine if not.",
+      "preferred": [
+        "HIGH_FLOOR"
+      ],
+      "avoid": [],
+      "optionalPreferred": [],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-080",
+      "lang": "en",
+      "kind": "함정",
+      "note": "A room with a view of Tokyo Tower would be the best.",
+      "preferred": [],
+      "avoid": [],
+      "optionalPreferred": [
+        "HIGH_FLOOR"
+      ],
+      "optionalAvoid": []
+    },
+    {
+      "id": "EN-081",
+      "lang": "en",
+      "kind": "함정",
+      "note": "I don't use a wheelchair, but my knees are bad, so I'd like to avoid places with a lot of stairs.",
+      "preferred": [
+        "ACCESSIBLE"
+      ],
+      "avoid": [],
+      "optionalPreferred": [
+        "LOW_FLOOR"
+      ],
+      "optionalAvoid": []
+    }
+  ]
+}
