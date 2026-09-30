@@ -17,3 +17,6 @@ spring:
   # 🚀 테스트 시 Flyway 자동 실행 방지 (H2는 data.sql로 가볍게 구동)
   flyway:
     enabled: false
+
+jwt:
+  secret: test-only-secret-key-for-junit-0123456789abcdef

@@ -5,6 +5,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -14,18 +15,25 @@ import java.util.Date;
 @Component
 public class JwtTokenProvider {
 
-    private static final String SECRET_STRING = "hotel-pms-ai-spring-security-jwt-secret-key-2026-production-ready!";
-    private static final long EXPIRATION_TIME_MS = 1000L * 60 * 60 * 8; // 8시간
+    // HS256은 256bit 이상 키가 필요하다. 짧은 값은 기동 때 막는다.
+    private static final int MIN_SECRET_BYTES = 32;
 
+    private final long expirationMs;
     private final SecretKey secretKey;
 
-    public JwtTokenProvider() {
-        this.secretKey = Keys.hmacShaKeyFor(SECRET_STRING.getBytes(StandardCharsets.UTF_8));
+    public JwtTokenProvider(@Value("${jwt.secret}") String secret,
+                            @Value("${jwt.expiration-ms:28800000}") long expirationMs) {
+        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
+        if (keyBytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException("jwt.secret은 32바이트 이상이어야 합니다.");
+        }
+        this.secretKey = Keys.hmacShaKeyFor(keyBytes);
+        this.expirationMs = expirationMs;
     }
 
     public String generateToken(String username, StaffRole role) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + EXPIRATION_TIME_MS);
+        Date expiryDate = new Date(now.getTime() + expirationMs);
 
         return Jwts.builder()
                 .subject(username)
