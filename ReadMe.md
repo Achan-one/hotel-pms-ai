@@ -170,12 +170,16 @@ GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL_NAME=gemini-2.5-flash
 GEMINI_TEMPERATURE=0.1
 GEMINI_THINKING_BUDGET=0
+JWT_SECRET=32바이트_이상의_임의_문자열
 ```
+* `JWT_SECRET`은 기본값이 없어서 비어 있으면 서버가 뜨지 않습니다. `openssl rand -base64 48` 등으로 만든 값을 넣습니다.
+* 실행 시 SQL 로그가 필요하면 `SPRING_PROFILES_ACTIVE=dev`를 지정합니다. 기본은 SQL을 출력하지 않습니다.
 
 ### 단위 및 통합 테스트 실행
 ```bash
 ./gradlew test
 ```
+* `MySqlSchemaAndConcurrencyIT`: 실제 MySQL 8.4 컨테이너에 Flyway(V1, V2)를 적용하고 이중 예약 방지와 락 동작을 검증합니다. Docker가 실행 중이어야 하며, 없으면 건너뜁니다.
 * `ReservationDomainTest`: 채널 식별, 조식 식권 발급, 미정산 체크아웃 차단, 0원 베이스 결제 원장 잔액 계산
 * `StayPeriodTest`: 반개구간 경계값, 체크아웃 당일 회전율 충돌 방지
 * `RoomRepositoryTest`: 191실 매핑, 13호 결번 및 14~15층 설비 결번 검증
