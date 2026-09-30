@@ -13,6 +13,8 @@ import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 import com.hotel.service.validator.ReservationValidator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,10 +28,13 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 @Service
 @Transactional
 public class ReservationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
 
     private final ReservationRepository reservationRepository;
     private final RoomRepository roomRepository;
@@ -90,8 +95,7 @@ public class ReservationService {
                 try {
                     cancelReservation(req.reservationId());
                 } catch (Exception e) {
-                    System.err.printf("[CMS 취소 수신] 취소 처리 실패 (예약ID: %s): %s%n",
-                            req.reservationId(), e.getMessage());
+                    log.warn("CMS 취소 처리 실패 reservationId={}", req.reservationId(), e);
                 }
             }
         }
@@ -130,6 +134,7 @@ public class ReservationService {
                 }
                 reservationRepository.save(success);
             } catch (Exception e) {
+                log.error("일괄 배정 결과 반영 실패, 보정 취소 진행 reservationId={}", success.getReservationId(), e);
                 String roomNumber = success.getAssignedRoomNumber();
                 StayPeriod period = new StayPeriod(success.getCheckInDate(), success.getStayNights());
                 if (roomNumber != null) {
@@ -216,6 +221,7 @@ public class ReservationService {
             return RoomChangeResult.failure(reservation.getReservationId(), "현재 배정된 객실과 동일한 객실로 이동할 수 없습니다.");
         }
 
+        lockRoomsInOrder(originRoomNumber, targetRoomNumber);
         Room targetRoom = roomRepository.findByRoomNumberForUpdate(targetRoomNumber).orElse(null);
         if (targetRoom == null) {
             return RoomChangeResult.failure(reservation.getReservationId(), "해당 객실(" + targetRoomNumber + ")이 도면에 존재하지 않습니다.");
@@ -266,6 +272,16 @@ public class ReservationService {
                 moveDate,
                 remainingNights
         );
+    }
+
+    // 두 방을 항상 방 번호 순으로 잠근다. 반대 방향 룸체인지가 겹쳐도 교착이 나지 않는다.
+    private void lockRoomsInOrder(String roomA, String roomB) {
+        Stream.of(roomA, roomB)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .distinct()
+                .sorted()
+                .forEach(roomRepository::findByRoomNumberForUpdate);
     }
 
     public void manualAssignRoom(String reservationId, String targetRoomNumber) {
