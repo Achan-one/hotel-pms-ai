@@ -49,7 +49,7 @@ public class ReservationEntity {
     private String rawRequestText;
 
     @Lob
-    @Column(name = "raw_xml_payload")
+    @Column(name = "raw_xml_payload", columnDefinition = "LONGTEXT")
     private String rawXmlPayload;
 
     @Column(name = "operational_guest_name", length = 100)
@@ -119,12 +119,12 @@ public class ReservationEntity {
     private LocalTime lateCheckOutTime;
 
     @Lob
-    @Column(name = "daily_rates_json")
+    @Column(name = "daily_rates_json", columnDefinition = "LONGTEXT")
     private String dailyRatesJson;
 
     // 🚀 Folio 거래 내역 원본 JSON
     @Lob
-    @Column(name = "transactions_json")
+    @Column(name = "transactions_json", columnDefinition = "LONGTEXT")
     private String transactionsJson;
 
     protected ReservationEntity() {}
