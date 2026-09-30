@@ -5,6 +5,7 @@ import com.hotel.entity.RoomEntity;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -19,4 +20,8 @@ public interface SpringDataRoomRepository extends JpaRepository<RoomEntity, Stri
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM RoomEntity r WHERE r.roomNumber = :roomNumber")
     Optional<RoomEntity> findByRoomNumberForUpdate(@Param("roomNumber") String roomNumber);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "DELETE FROM room_tag_mappings WHERE tag_code = :tagCode", nativeQuery = true)
+    int deleteTagMappings(@Param("tagCode") String tagCode);
 }

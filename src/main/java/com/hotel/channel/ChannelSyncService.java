@@ -2,6 +2,7 @@ package com.hotel.channel;
 
 import com.hotel.channel.dto.ChannelInventorySyncDto;
 import com.hotel.domain.QuotaPolicy;
+import com.hotel.domain.Room;
 import com.hotel.domain.RoomType;
 import com.hotel.domain.StayPeriod;
 import com.hotel.repository.RoomRepository;
@@ -28,9 +29,10 @@ public class ChannelSyncService {
     public List<ChannelInventorySyncDto> calculateDailySellableInventory(LocalDate targetDate) {
         List<ChannelInventorySyncDto> results = new ArrayList<>();
         StayPeriod singleDay = new StayPeriod(targetDate, 1);
+        List<Room> allRooms = roomRepository.findAll();
 
         for (RoomType type : RoomType.values()) {
-            long physicalVacant = roomRepository.findAll().stream()
+            long physicalVacant = allRooms.stream()
                     .filter(r -> r.getRoomType() == type)
                     .filter(r -> !r.getStatus().isOutOfService()) // 고장/점검 객실 제외
                     .filter(r -> r.isAvailable(singleDay))         // 스케줄 충돌 없는 방

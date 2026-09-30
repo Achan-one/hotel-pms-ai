@@ -42,13 +42,8 @@ class ReservationServiceChannelTest {
         TagRepository tagRepository = new InMemoryTagRepository();
         QuotaPolicy quotaPolicy = new QuotaPolicy();
 
-        reservationService = new ReservationService(
-                reservationRepository,
-                roomRepository,
-                null,
-                tagRepository,
-                quotaPolicy
-        );
+        reservationService = ReservationServiceFixtures.inMemory(
+                reservationRepository, roomRepository, new AiPreferenceParser(tagRepository, null, null), tagRepository, quotaPolicy);
     }
 
     @Test

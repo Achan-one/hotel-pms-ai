@@ -1,9 +1,19 @@
 package com.hotel.repository.jpa;
 
 import com.hotel.entity.HotelOperationStatusEntity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
 
 @Repository
 public interface SpringDataHotelOperationStatusRepository extends JpaRepository<HotelOperationStatusEntity, String> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from HotelOperationStatusEntity s where s.propertyId = :propertyId")
+    Optional<HotelOperationStatusEntity> findByIdForUpdate(@Param("propertyId") String propertyId);
 }

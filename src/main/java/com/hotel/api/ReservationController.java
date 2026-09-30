@@ -2,6 +2,7 @@ package com.hotel.api;
 
 import com.hotel.api.dto.ApiResponse;
 import com.hotel.api.dto.BatchAssignApiRequest;
+import com.hotel.api.dto.ReservationResponse;
 import com.hotel.api.dto.RoomChangeApiRequest;
 import com.hotel.domain.Reservation;
 import com.hotel.service.BatchAssignmentResult;
@@ -9,11 +10,13 @@ import com.hotel.service.NightAuditService;
 import com.hotel.service.ReservationService;
 import com.hotel.service.HotelOperationService;
 import com.hotel.service.dto.NightAuditResult;
+import com.hotel.service.dto.PageResult;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -106,10 +109,13 @@ public class ReservationController {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Reservation>>> searchReservations(
+    public ResponseEntity<ApiResponse<PageResult<ReservationResponse>>> searchReservations(
             @ModelAttribute ReservationSearchCondition condition,
             @RequestParam(value = "tag", required = false) String tag,
-            @RequestParam(value = "otaChannel", required = false) String otaChannel) {
+            @RequestParam(value = "otaChannel", required = false) String otaChannel,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size,
+            Authentication authentication) {
 
         ReservationSearchCondition finalCondition = condition;
 
@@ -131,8 +137,10 @@ public class ReservationController {
             );
         }
 
-        List<Reservation> reservations = reservationService.searchReservations(finalCondition);
-        return ResponseEntity.ok(ApiResponse.ok(reservations));
+        PageResult<Reservation> result = reservationService.searchReservations(
+                finalCondition, PageResult.normalizePage(page), PageResult.normalizeSize(size));
+        boolean includeMemo = canSeeStaffMemo(authentication);
+        return ResponseEntity.ok(ApiResponse.ok(result.map(r -> ReservationResponse.from(r, includeMemo))));
     }
 
     @PostMapping("/batch-assign")
@@ -143,10 +151,12 @@ public class ReservationController {
     }
 
     @GetMapping("/{reservationId}")
-    public ResponseEntity<ApiResponse<Reservation>> getReservation(
-            @PathVariable String reservationId) {
+    public ResponseEntity<ApiResponse<ReservationResponse>> getReservation(
+            @PathVariable String reservationId,
+            Authentication authentication) {
+        boolean includeMemo = canSeeStaffMemo(authentication);
         return reservationService.getReservation(reservationId)
-                .map(reservation -> ResponseEntity.ok(ApiResponse.ok(reservation)))
+                .map(reservation -> ResponseEntity.ok(ApiResponse.ok(ReservationResponse.from(reservation, includeMemo))))
                 .orElseGet(() -> ResponseEntity.status(404)
                         .body(ApiResponse.fail("해당 예약을 찾을 수 없습니다: " + reservationId)));
     }
@@ -241,6 +251,12 @@ public class ReservationController {
         LocalDate effectiveDate = (targetDate != null) ? targetDate : hotelOperationService.getCurrentBusinessDate();
         NightAuditResult result = nightAuditService.runNightAudit(effectiveDate);
         return ResponseEntity.ok(ApiResponse.ok(result.message(), result));
+    }
+
+    // 내부 인계 메모는 아르바이트(PART_TIME)에게는 보이지 않는다.
+    private static boolean canSeeStaffMemo(Authentication authentication) {
+        return authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_STAFF"));
     }
 
     private static String text(Map<String, Object> body, String key) {

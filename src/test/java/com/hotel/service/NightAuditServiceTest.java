@@ -38,8 +38,12 @@ class NightAuditServiceTest {
             }
 
             @Override
-            public LocalDate rolloverToNextDate() {
-                currentDate = currentDate.plusDays(1);
+            public void verifyAuditable(LocalDate auditDate) {
+            }
+
+            @Override
+            public LocalDate completeAudit(LocalDate auditDate) {
+                currentDate = auditDate.plusDays(1);
                 return currentDate;
             }
 

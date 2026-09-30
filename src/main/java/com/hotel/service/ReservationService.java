@@ -7,8 +7,7 @@ import com.hotel.repository.CityLedgerRepository;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
-import com.hotel.repository.memory.InMemoryCityLedgerRepository;
-import com.hotel.repository.memory.InMemoryTagRepository;
+import com.hotel.service.dto.PageResult;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.dto.RoomChangeRequest;
 import com.hotel.service.dto.RoomChangeResult;
@@ -44,7 +43,6 @@ public class ReservationService {
     private final ReservationValidator validator;
     private final CityLedgerRepository cityLedgerRepository;
 
-    // 1. 스프링 주입용 생성자
     @Autowired
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
@@ -54,27 +52,12 @@ public class ReservationService {
                               CityLedgerRepository cityLedgerRepository) {
         this.roomRepository = Objects.requireNonNull(roomRepository, "roomRepository는 필수입니다.");
         this.reservationRepository = Objects.requireNonNull(reservationRepository, "reservationRepository는 필수입니다.");
-        this.quotaPolicy = (quotaPolicy != null) ? quotaPolicy : new QuotaPolicy();
-        this.validator = new ReservationValidator();
-        this.aiParser = (aiParser != null) ? aiParser : new AiPreferenceParser();
-        this.batchAssigner = new BatchAssigner(roomRepository, tagRepository, this.quotaPolicy);
+        this.quotaPolicy = Objects.requireNonNull(quotaPolicy, "quotaPolicy는 필수입니다.");
+        this.aiParser = Objects.requireNonNull(aiParser, "aiParser는 필수입니다.");
         this.cityLedgerRepository = Objects.requireNonNull(cityLedgerRepository, "cityLedgerRepository는 필수입니다.");
-    }
-
-    // 2. Main.java 및 인메모리 통합 테스트용 생성자
-    public ReservationService(ReservationRepository reservationRepository,
-                              RoomRepository roomRepository,
-                              AiPreferenceParser aiParser,
-                              TagRepository tagRepository,
-                              QuotaPolicy quotaPolicy) {
-        this(reservationRepository, roomRepository, aiParser, tagRepository, quotaPolicy, new InMemoryCityLedgerRepository());
-    }
-
-    // 3. 단위 테스트용 생성자
-    public ReservationService(ReservationRepository reservationRepository,
-                              RoomRepository roomRepository,
-                              AiPreferenceParser aiParser) {
-        this(reservationRepository, roomRepository, aiParser, new InMemoryTagRepository(), new QuotaPolicy(), new InMemoryCityLedgerRepository());
+        this.validator = new ReservationValidator();
+        this.batchAssigner = new BatchAssigner(roomRepository,
+                Objects.requireNonNull(tagRepository, "tagRepository는 필수입니다."), this.quotaPolicy);
     }
 
     public List<Reservation> receiveReservations(List<Reservation> rawReservations) {
@@ -342,12 +325,8 @@ public class ReservationService {
         reservationRepository.save(reservation);
     }
 
-    public void processCheckOut(String reservationId) {
-        processCheckOut(reservationId, LocalDate.now());
-    }
-
     public void processCheckOut(String reservationId, LocalDate checkOutDate) {
-        LocalDate effectiveDate = (checkOutDate != null) ? checkOutDate : LocalDate.now();
+        LocalDate effectiveDate = Objects.requireNonNull(checkOutDate, "퇴실 일자는 필수입니다.");
         Reservation reservation = findReservationOrThrow(reservationId);
 
         reservation.checkOut(effectiveDate);
@@ -437,6 +416,11 @@ public class ReservationService {
     @Transactional(readOnly = true)
     public List<Reservation> searchReservations(ReservationSearchCondition condition) {
         return reservationRepository.search(condition);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResult<Reservation> searchReservations(ReservationSearchCondition condition, int page, int size) {
+        return reservationRepository.search(condition, page, size);
     }
 
     @Transactional(readOnly = true)

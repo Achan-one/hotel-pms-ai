@@ -19,8 +19,4 @@ public record RoomChangeRequest(
         reason = (reason != null && !reason.isBlank()) ? reason.trim() : "현장 요청";
     }
 
-    // 편의 팩토리 메서드: 이동 일자를 당일(LocalDate.now())로 간편 지정
-    public static RoomChangeRequest of(String reservationId, String targetRoomNumber) {
-        return new RoomChangeRequest(reservationId, targetRoomNumber, LocalDate.now(), "현장 요청");
-    }
 }

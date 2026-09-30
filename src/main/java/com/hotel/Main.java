@@ -43,7 +43,8 @@ public class Main {
 
         AiPreferenceParser aiParser = new AiPreferenceParser(tagRepository);
         ReservationService reservationService = new ReservationService(
-                reservationRepository, roomRepository, aiParser, tagRepository, quotaPolicy
+                reservationRepository, roomRepository, aiParser, tagRepository, quotaPolicy,
+                new com.hotel.repository.memory.InMemoryCityLedgerRepository()
         );
         FloorStatusService floorStatusService = new FloorStatusService(roomRepository);
 

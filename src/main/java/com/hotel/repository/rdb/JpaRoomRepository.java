@@ -63,6 +63,35 @@ public class JpaRoomRepository implements RoomRepository {
         syncNightOccupancy(room.getRoomNumber(), currentPeriods);
     }
 
+    @Override
+    @Transactional
+    public boolean addTag(String roomNumber, String tagCode) {
+        if (roomNumber == null || roomNumber.isBlank()) return false;
+        return roomJpaRepo.findByRoomNumberForUpdate(roomNumber.trim()).map(entity -> {
+            entity.addTag(tagCode);
+            roomJpaRepo.save(entity);
+            return true;
+        }).orElse(false);
+    }
+
+    @Override
+    @Transactional
+    public boolean removeTag(String roomNumber, String tagCode) {
+        if (roomNumber == null || roomNumber.isBlank()) return false;
+        return roomJpaRepo.findByRoomNumberForUpdate(roomNumber.trim()).map(entity -> {
+            entity.removeTag(tagCode);
+            roomJpaRepo.save(entity);
+            return true;
+        }).orElse(false);
+    }
+
+    @Override
+    @Transactional
+    public void removeTagFromAll(String tagCode) {
+        if (tagCode == null || tagCode.isBlank()) return;
+        roomJpaRepo.deleteTagMappings(tagCode.trim().toUpperCase());
+    }
+
     // 도메인에서 사라진 기간의 스케줄 행을 지운다.
     private void removeStaleSchedules(List<RoomScheduleEntity> existingSchedules, List<StayPeriod> currentPeriods) {
         for (RoomScheduleEntity ex : existingSchedules) {
@@ -183,12 +212,14 @@ public class JpaRoomRepository implements RoomRepository {
                 entity.isNearElevator(),
                 entity.isCornerRoom()
         );
-        room.setStatus(entity.getStatus());
         entity.getTags().forEach(room::addTag);
 
+        // 점검/휴식 상태에서는 tryBookPeriod가 항상 거절되므로 스케줄을 먼저 복원하고 상태는 마지막에 되돌린다.
+        // 순서가 반대면 점검 중인 방의 스케줄이 사라지고, 다음 save가 DB 스케줄을 지워 버린다.
         for (RoomScheduleEntity s : schedules) {
             room.tryBookPeriod(new StayPeriod(s.getCheckInDate(), s.getCheckOutDate()));
         }
+        room.restoreStatus(entity.getStatus());
         return room;
     }
 }

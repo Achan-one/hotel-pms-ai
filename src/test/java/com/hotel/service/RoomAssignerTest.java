@@ -1,5 +1,6 @@
 package com.hotel.service;
 
+import java.time.LocalDate;
 import com.hotel.domain.GuestPreference;
 import com.hotel.domain.GuestPreference.CornerPref;
 import com.hotel.domain.GuestPreference.ElevatorPref;
@@ -53,7 +54,7 @@ class RoomAssignerTest {
     void verifyBiDirectionalAssignment() {
         Reservation reservation = new Reservation(
                 "RSV-001", "홍길동", RoomType.SUPERIOR_TWIN,
-                2, "테스트 예약", GuestPreference.empty()
+                LocalDate.of(2026, 9, 20), 2, "테스트 예약", GuestPreference.empty()
         );
 
         Optional<Room> assignedRoom = assigner.assign(reservation);
@@ -74,7 +75,7 @@ class RoomAssignerTest {
 
         Reservation newBooking = new Reservation(
                 "RSV-999", "만실손님", RoomType.SUPERIOR_TWIN,
-                1, null, GuestPreference.empty()
+                LocalDate.of(2026, 9, 20), 1, null, GuestPreference.empty()
         );
 
         Optional<Room> result = assigner.assign(newBooking);

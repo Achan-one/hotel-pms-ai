@@ -4,6 +4,7 @@ import com.hotel.domain.BookingChannelInfo;
 import jakarta.persistence.*;
 
 import java.time.LocalDate;
+import java.util.Objects;
 import java.time.LocalDateTime;
 
 @Entity
@@ -55,14 +56,17 @@ public class CityLedgerRecordEntity {
                                   LocalDate checkOutDate,
                                   long billedAmount,
                                   LocalDate settledDate) {
-        this.channelType = channelType;
-        this.reservationId = reservationId;
-        this.guestName = guestName;
+        if (billedAmount < 0) {
+            throw new IllegalArgumentException("정산 금액은 0 이상이어야 합니다.");
+        }
+        this.channelType = Objects.requireNonNull(channelType, "채널 유형은 필수입니다.");
+        this.reservationId = Objects.requireNonNull(reservationId, "예약 ID는 필수입니다.");
+        this.guestName = Objects.requireNonNull(guestName, "투숙객명은 필수입니다.");
         this.channelReservationNo = channelReservationNo;
-        this.checkInDate = checkInDate;
-        this.checkOutDate = checkOutDate;
+        this.checkInDate = Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
+        this.checkOutDate = Objects.requireNonNull(checkOutDate, "체크아웃 일자는 필수입니다.");
         this.billedAmount = billedAmount;
-        this.settledDate = settledDate;
+        this.settledDate = Objects.requireNonNull(settledDate, "정산 일자는 필수입니다.");
         this.createdAt = LocalDateTime.now();
     }
 

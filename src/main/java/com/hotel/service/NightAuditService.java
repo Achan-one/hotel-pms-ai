@@ -54,6 +54,11 @@ public class NightAuditService {
      * - 이미 0박이었던 예약만 다음 날 마감 시 최종 노쇼(CANCELLED) 처리
      */
     public int rolloverUncheckedArrivals(LocalDate currentBusinessDate) {
+        LocalDate businessDate = hotelOperationService.getCurrentBusinessDate();
+        if (!businessDate.equals(currentBusinessDate)) {
+            throw new IllegalArgumentException(String.format(
+                    "미체크인 이월은 현재 영업일(%s)만 처리할 수 있습니다. 요청 일자: %s", businessDate, currentBusinessDate));
+        }
         List<Reservation> uncheckedList = getUncheckedArrivals(currentBusinessDate);
         int processedCount = 0;
         LocalDate nextDate = currentBusinessDate.plusDays(1);
@@ -122,6 +127,7 @@ public class NightAuditService {
      */
     public NightAuditResult runNightAudit(LocalDate currentBusinessDate) {
         Objects.requireNonNull(currentBusinessDate, "영업일자는 필수입니다.");
+        hotelOperationService.verifyAuditable(currentBusinessDate);
         log.info("[Night Audit] 야간 일일 마감 시작 - 기준일: {}", currentBusinessDate);
 
         // 1. 사전 점검: 미체크인 당일 예약 확인
@@ -143,9 +149,8 @@ public class NightAuditService {
         for (Reservation guest : inHouseGuests) {
             long dailyRate = guest.getDailyRateSchedule().getRateForDate(currentBusinessDate);
             if (dailyRate <= 0) {
-                dailyRate = guest.getStayNights() > 0
-                        ? (guest.getPaymentLedger().getTotalCharges() / guest.getStayNights())
-                        : 15_000L;
+                log.warn("[Night Audit] 요율이 없어 객실료를 포스팅하지 않았습니다: {} ({})", guest.getReservationId(), currentBusinessDate);
+                continue;
             }
 
             guest.getPaymentLedger().postRoomCharge(dailyRate);
@@ -155,7 +160,7 @@ public class NightAuditService {
         }
 
         // 3. DB 시스템 영업일자 익일 롤오버
-        LocalDate nextBusinessDate = hotelOperationService.rolloverToNextDate();
+        LocalDate nextBusinessDate = hotelOperationService.completeAudit(currentBusinessDate);
 
         log.info("[Night Audit] 마감 완료 - 룸차지 포스팅: {}실(총 ¥{}), 롤오버: {} -> {}",
                 postedCount, totalRevenue, currentBusinessDate, nextBusinessDate);

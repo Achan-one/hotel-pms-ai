@@ -264,6 +264,7 @@ public class SimulationTestController {
                 };
                 if (!isDefault) {
                     room.removeTag(tagCode);
+                    roomRepository.removeTag(room.getRoomNumber(), tagCode);
                 }
             }
             room.forceVacant();
@@ -272,7 +273,7 @@ public class SimulationTestController {
 
         // 4) 공식 영업일자 2026-09-20 기본 롤백
         LocalDate defaultDate = LocalDate.of(2026, 9, 20);
-        hotelOperationService.setBusinessDate(defaultDate);
+        hotelOperationService.resetBusinessDate(defaultDate);
 
         return ResponseEntity.ok(Map.of(
                 "success", true,

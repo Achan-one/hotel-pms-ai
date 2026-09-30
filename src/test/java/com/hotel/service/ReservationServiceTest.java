@@ -66,14 +66,8 @@ class ReservationServiceTest {
             }
         };
 
-        // 5개 인자 마스터 생성자에 맞추어 의존성 주입
-        reservationService = new ReservationService(
-                reservationRepository,
-                roomRepository,
-                stubAiParser,
-                tagRepository,
-                quotaPolicy
-        );
+        reservationService = ReservationServiceFixtures.inMemory(
+                reservationRepository, roomRepository, stubAiParser, tagRepository, quotaPolicy);
     }
 
     @Test

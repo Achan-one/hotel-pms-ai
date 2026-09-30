@@ -59,7 +59,7 @@ public class ReportExportService {
 
     // 2. 당일 도착 예정자 명단 (Arrivals List)
     public List<ArrivalReportItemDto> getArrivalList(LocalDate targetDate) {
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate date = Objects.requireNonNull(targetDate, "기준 일자는 필수입니다.");
         List<Reservation> arrivals = reservationRepository.findByCheckInDate(date);
 
         return arrivals.stream()
@@ -101,7 +101,7 @@ public class ReportExportService {
 
     // 3. 당일 출발 예정자 명단 (Departures List)
     public List<DepartureReportItemDto> getDepartureList(LocalDate targetDate) {
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate date = Objects.requireNonNull(targetDate, "기준 일자는 필수입니다.");
         List<Reservation> allReservations = reservationRepository.search(ReservationSearchCondition.empty());
 
         return allReservations.stream()
@@ -149,7 +149,7 @@ public class ReportExportService {
 
     // 4. 재실 숙박자 명단 (In-House Guest List)
     public List<InHouseGuestDto> getInHouseGuestList(LocalDate targetDate) {
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate date = Objects.requireNonNull(targetDate, "기준 일자는 필수입니다.");
         List<Reservation> stayingList = reservationRepository.search(ReservationSearchCondition.byStayingDate(date));
 
         return stayingList.stream()
@@ -194,7 +194,7 @@ public class ReportExportService {
 
     // 5. 룸 밸런스 리포트 (Room Balance Reconciliation)
     public List<RoomBalanceReportDto> getRoomBalanceReport(LocalDate targetDate) {
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate date = Objects.requireNonNull(targetDate, "기준 일자는 필수입니다.");
         List<Room> allRooms = roomRepository.findAll();
         List<Reservation> inHouseGuests = reservationRepository.search(ReservationSearchCondition.byStayingDate(date));
         List<Reservation> arrivals = reservationRepository.findByCheckInDate(date);
@@ -256,7 +256,7 @@ public class ReportExportService {
 
     // 6. 스페셜 리퀘스트 요약 명단 (배정객실보유태그 컬럼 추가)
     public List<SpecialRequestReportDto> getSpecialRequestSummary(LocalDate targetDate) {
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate date = Objects.requireNonNull(targetDate, "기준 일자는 필수입니다.");
         List<Reservation> arrivals = reservationRepository.findByCheckInDate(date);
 
         List<SpecialRequestReportDto> list = new ArrayList<>();
@@ -324,7 +324,7 @@ public class ReportExportService {
 
     // 7. 하우스키핑 작업 지시서
     public List<HousekeepingWorkItemDto> getHousekeepingWorkSheet(LocalDate targetDate) {
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate date = Objects.requireNonNull(targetDate, "기준 일자는 필수입니다.");
         List<Room> allRooms = roomRepository.findAll();
 
         Set<String> todayDepartureRoomNumbers = reservationRepository.search(ReservationSearchCondition.empty()).stream()

@@ -1,6 +1,7 @@
 package com.hotel.service;
 
 import com.hotel.domain.Reservation;
+import com.hotel.domain.ReservationStatus;
 import com.hotel.domain.Room;
 import com.hotel.domain.RoomStatus;
 import com.hotel.repository.RoomRepository;
@@ -20,7 +21,7 @@ public class FloorStatusService {
     }
 
     public FloorMapResponseDto getFloorMatrix(LocalDate targetDate, List<Reservation> activeReservations) {
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
+        LocalDate date = Objects.requireNonNull(targetDate, "조회 일자는 필수입니다.");
 
         // 방 번호 기준으로 해당 날짜에 머무는 유효 예약 매핑 (현재 호실 + 룸체인지 이전 호실 이력 포함)
         Map<String, Reservation> roomToResMap = new HashMap<>();
@@ -65,7 +66,9 @@ public class FloorStatusService {
             String stayPeriodStr = null;
 
             if (matchedRes != null) {
-                status = matchedRes.getStatus().isInHouse() ? RoomStatus.OCCUPIED : RoomStatus.ASSIGNED;
+                // 이미 퇴실한 예약도 머문 기간 안의 날짜에서는 투숙 중이었으므로 OCCUPIED로 표시한다.
+                boolean stayed = matchedRes.getStatus().isInHouse() || matchedRes.getStatus() == ReservationStatus.CHECKED_OUT;
+                status = stayed ? RoomStatus.OCCUPIED : RoomStatus.ASSIGNED;
                 rsvId = matchedRes.getReservationId();
                 guestName = matchedRes.getGuestName();
                 stayPeriodStr = String.format("%s ~ %s", matchedRes.getCheckInDate(), matchedRes.getCheckOutDate());
@@ -102,8 +105,11 @@ public class FloorStatusService {
                 ));
 
         int totalRooms = allRooms.size();
-        int occupiedRooms = (int) dtoList.stream().filter(item -> item.status() != RoomStatus.VACANT).count();
-        int vacantRooms = totalRooms - occupiedRooms;
+        // 점유는 투숙 중이거나 배정된 방만 센다. 청소대기, 점검, 휴식 중인 방은 점유도 공실도 아니다.
+        int occupiedRooms = (int) dtoList.stream()
+                .filter(item -> item.status() == RoomStatus.OCCUPIED || item.status() == RoomStatus.ASSIGNED)
+                .count();
+        int vacantRooms = (int) dtoList.stream().filter(item -> item.status() == RoomStatus.VACANT).count();
         double occ = totalRooms > 0 ? ((double) occupiedRooms / totalRooms) * 100.0 : 0.0;
         double roundedOcc = Math.round(occ * 10.0) / 10.0;
 

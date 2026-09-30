@@ -42,7 +42,7 @@ class ReservationDomainTest {
         reservation.checkIn();
 
         assertThrows(IllegalStateException.class, () -> {
-            reservation.checkOut();
+            reservation.checkOut(LocalDate.of(2026, 9, 21));
         });
     }
 

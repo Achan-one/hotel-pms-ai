@@ -8,6 +8,9 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hotel.domain.StaffRole;
+
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -34,5 +37,39 @@ public class JpaStaffRepository implements StaffRepository {
     public void save(StaffAccount account) {
         if (account == null) return;
         jpaRepo.save(StaffAccountEntity.fromDomain(account));
+    }
+
+    @Override
+    @Transactional
+    public void recordLoginFailure(String staffId, int maxAttempts, LocalDateTime lockUntil) {
+        String id = normalize(staffId);
+        if (id == null) return;
+        jpaRepo.incrementFailedAttempts(id);
+        jpaRepo.lockIfExceeded(id, maxAttempts, lockUntil);
+    }
+
+    @Override
+    @Transactional
+    public void recordLoginSuccess(String staffId) {
+        String id = normalize(staffId);
+        if (id == null) return;
+        jpaRepo.clearLoginFailures(id);
+    }
+
+    @Override
+    @Transactional
+    public boolean updateEnabled(String staffId, boolean enabled) {
+        String id = normalize(staffId);
+        return id != null && jpaRepo.updateEnabled(id, enabled) > 0;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long countEnabledByRole(StaffRole role) {
+        return jpaRepo.countByRoleAndEnabledTrue(role);
+    }
+
+    private static String normalize(String staffId) {
+        return (staffId == null || staffId.isBlank()) ? null : staffId.trim().toLowerCase();
     }
 }

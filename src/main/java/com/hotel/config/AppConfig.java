@@ -71,10 +71,6 @@ public class AppConfig {
         return new BatchAssigner(roomAssigner);
     }
 
-    @Bean
-    public RoomChangeService roomChangeService(RoomRepository roomRepository) {
-        return new RoomChangeService(roomRepository);
-    }
 
     // 4. 핵심 서비스 계층
     @Bean

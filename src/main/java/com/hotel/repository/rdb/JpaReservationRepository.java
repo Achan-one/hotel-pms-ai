@@ -6,6 +6,7 @@ import com.hotel.domain.ReservationStatus;
 import com.hotel.entity.ReservationEntity;
 import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.jpa.SpringDataReservationRepository;
+import com.hotel.service.dto.PageResult;
 import com.hotel.service.dto.ReservationSearchCondition;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -130,6 +131,64 @@ public class JpaReservationRepository implements ReservationRepository {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         CriteriaQuery<ReservationEntity> cq = cb.createQuery(ReservationEntity.class);
         Root<ReservationEntity> root = cq.from(ReservationEntity.class);
+        List<Predicate> predicates = buildPredicates(cb, root, condition);
+
+        cq.where(predicates.toArray(new Predicate[0]));
+        cq.orderBy(cb.asc(root.get("reservationId")));
+
+        List<Reservation> results = em.createQuery(cq).getResultList().stream()
+                .map(ReservationEntity::toDomain)
+                .toList();
+
+        // stayingDate(체류일자) 반개구간 [checkIn, checkOut) 계산 필터링
+        if (condition.stayingDate() != null) {
+            LocalDate target = condition.stayingDate();
+            results = results.stream().filter(r -> {
+                if (r.getCheckInDate() == null || r.getStatus() == ReservationStatus.CANCELLED) return false;
+                LocalDate effectiveCheckOut = (r.getStatus() == ReservationStatus.CHECKED_OUT && r.getActualCheckOutDate() != null)
+                        ? r.getActualCheckOutDate() : r.getCheckOutDate();
+                return !target.isBefore(r.getCheckInDate()) && target.isBefore(effectiveCheckOut);
+            }).toList();
+        }
+
+        return results;
+    }
+
+    /**
+     * DB 페이징 검색. stayingDate 조건은 실제 퇴실일 등 계산이 필요해 메모리에서 걸러야 하므로
+     * 그 조건이 있으면 걸러낸 뒤에 잘라낸다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public PageResult<Reservation> search(ReservationSearchCondition condition, int page, int size) {
+        if (condition == null || condition.stayingDate() != null) {
+            return PageResult.slice(search(condition), page, size);
+        }
+
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+
+        CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
+        Root<ReservationEntity> countRoot = countQuery.from(ReservationEntity.class);
+        countQuery.select(cb.count(countRoot))
+                .where(buildPredicates(cb, countRoot, condition).toArray(new Predicate[0]));
+        long total = em.createQuery(countQuery).getSingleResult();
+
+        CriteriaQuery<ReservationEntity> cq = cb.createQuery(ReservationEntity.class);
+        Root<ReservationEntity> root = cq.from(ReservationEntity.class);
+        cq.where(buildPredicates(cb, root, condition).toArray(new Predicate[0]));
+        cq.orderBy(cb.asc(root.get("reservationId")));
+
+        List<Reservation> items = em.createQuery(cq)
+                .setFirstResult(page * size)
+                .setMaxResults(size)
+                .getResultList().stream()
+                .map(ReservationEntity::toDomain)
+                .toList();
+
+        return new PageResult<>(items, page, size, total);
+    }
+
+    private List<Predicate> buildPredicates(CriteriaBuilder cb, Root<ReservationEntity> root, ReservationSearchCondition condition) {
         List<Predicate> predicates = new ArrayList<>();
 
         if (condition.reservationId() != null && !condition.reservationId().isBlank()) {
@@ -179,25 +238,13 @@ public class JpaReservationRepository implements ReservationRepository {
             predicates.add(cb.or(prefTagMatch, avoidTagMatch, rawTextMatch));
         }
 
-        cq.where(predicates.toArray(new Predicate[0]));
-        cq.orderBy(cb.asc(root.get("reservationId")));
-
-        List<Reservation> results = em.createQuery(cq).getResultList().stream()
-                .map(ReservationEntity::toDomain)
-                .toList();
-
-        // stayingDate(체류일자) 반개구간 [checkIn, checkOut) 계산 필터링
+        // 체류일자 조건은 체크인이 그날 이전이고 취소되지 않은 예약만 후보가 된다. 나머지는 메모리에서 판정한다.
         if (condition.stayingDate() != null) {
-            LocalDate target = condition.stayingDate();
-            results = results.stream().filter(r -> {
-                if (r.getCheckInDate() == null || r.getStatus() == ReservationStatus.CANCELLED) return false;
-                LocalDate effectiveCheckOut = (r.getStatus() == ReservationStatus.CHECKED_OUT && r.getActualCheckOutDate() != null)
-                        ? r.getActualCheckOutDate() : r.getCheckOutDate();
-                return !target.isBefore(r.getCheckInDate()) && target.isBefore(effectiveCheckOut);
-            }).toList();
+            predicates.add(cb.lessThanOrEqualTo(root.get("operationalCheckInDate"), condition.stayingDate()));
+            predicates.add(cb.notEqual(root.get("status"), ReservationStatus.CANCELLED));
         }
 
-        return results;
+        return predicates;
     }
 
     @Override

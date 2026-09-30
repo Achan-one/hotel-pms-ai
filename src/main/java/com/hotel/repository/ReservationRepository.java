@@ -1,6 +1,7 @@
 package com.hotel.repository;
 
 import com.hotel.domain.Reservation;
+import com.hotel.service.dto.PageResult;
 import com.hotel.service.dto.ReservationSearchCondition;
 
 import java.time.LocalDate;
@@ -30,6 +31,13 @@ public interface ReservationRepository {
     List<Reservation> findUnassignedByCheckInDate(LocalDate checkInDate);
 
     List<Reservation> search(ReservationSearchCondition condition);
+
+    /**
+     * 조건에 맞는 예약을 예약 ID 순으로 한 페이지만 조회한다. page는 0부터 시작한다.
+     */
+    default PageResult<Reservation> search(ReservationSearchCondition condition, int page, int size) {
+        return PageResult.slice(search(condition), page, size);
+    }
 
     void deleteById(String reservationId);
 

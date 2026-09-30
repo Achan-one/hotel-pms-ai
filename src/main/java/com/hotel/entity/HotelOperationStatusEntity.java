@@ -22,6 +22,9 @@ public class HotelOperationStatusEntity {
     @Column(name = "last_audit_at")
     private LocalDateTime lastAuditAt;
 
+    @Column(name = "last_audited_date")
+    private LocalDate lastAuditedDate;
+
     protected HotelOperationStatusEntity() {}
 
     public HotelOperationStatusEntity(String propertyId, LocalDate businessDate, LocalDateTime lastAuditAt) {
@@ -37,10 +40,19 @@ public class HotelOperationStatusEntity {
     public String getPropertyId() { return propertyId; }
     public LocalDate getBusinessDate() { return businessDate; }
     public LocalDateTime getLastAuditAt() { return lastAuditAt; }
+    public LocalDate getLastAuditedDate() { return lastAuditedDate; }
 
-    public void rollover(LocalDate newDate) {
-        this.businessDate = newDate;
+    /**
+     * 감사한 영업일을 마감 처리하고 다음 영업일로 넘긴다.
+     */
+    public void completeAudit(LocalDate auditedDate) {
+        this.lastAuditedDate = auditedDate;
+        this.businessDate = auditedDate.plusDays(1);
         this.lastAuditAt = LocalDateTime.now();
+    }
+
+    public void resetAuditGuard() {
+        this.lastAuditedDate = null;
     }
 
     public void updateBusinessDate(LocalDate newDate) {

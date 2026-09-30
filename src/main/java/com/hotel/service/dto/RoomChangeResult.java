@@ -36,11 +36,4 @@ public record RoomChangeResult(
         return new RoomChangeResult(true, reservationId, originRoomNumber, targetRoomNumber, effectiveDate, remainingNights, msg);
     }
 
-    // 기존 호환용: 4개 인자 호출(String, String, String, String) 수용
-    public static RoomChangeResult success(String reservationId,
-                                           String originRoomNumber,
-                                           String targetRoomNumber,
-                                           String message) {
-        return new RoomChangeResult(true, reservationId, originRoomNumber, targetRoomNumber, LocalDate.now(), 0, message);
-    }
 }

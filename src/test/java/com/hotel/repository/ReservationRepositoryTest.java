@@ -115,7 +115,7 @@ class ReservationRepositoryTest {
         assertTrue(res.getStatus().isInHouse());
 
         // 4. 퇴실
-        res.checkOut();
+        res.checkOut(LocalDate.of(2026, 9, 22));
         assertEquals(ReservationStatus.CHECKED_OUT, res.getStatus());
         assertFalse(res.getStatus().isInHouse());
     }

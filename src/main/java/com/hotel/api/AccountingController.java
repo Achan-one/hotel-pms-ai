@@ -6,12 +6,18 @@ import com.hotel.entity.CityLedgerRecordEntity;
 import com.hotel.entity.FolioChargeCodeEntity;
 import com.hotel.repository.CityLedgerRepository;
 import com.hotel.repository.jpa.SpringDataFolioChargeCodeRepository;
+import com.hotel.service.DuplicateResourceException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 
 @RestController
@@ -26,6 +32,19 @@ public class AccountingController {
         this.chargeCodeRepo = chargeCodeRepo;
         this.cityLedgerRepo = cityLedgerRepo;
     }
+
+    public record ChargeCodeRequest(
+            @NotBlank(message = "계정과목 코드는 필수입니다.")
+            @Size(max = 30, message = "계정과목 코드는 30자 이하여야 합니다.")
+            String code,
+
+            @NotBlank(message = "계정과목 이름은 필수입니다.")
+            @Size(max = 50, message = "계정과목 이름은 50자 이하여야 합니다.")
+            String name,
+
+            @PositiveOrZero(message = "기본 금액은 0 이상이어야 합니다.")
+            long defaultAmount
+    ) {}
 
     /**
      * 1. 등록된 계정과목 목록 조회 (수납 모달 및 관리자 화면용)
@@ -42,12 +61,13 @@ public class AccountingController {
      */
     @PostMapping("/charge-codes")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> registerChargeCode(@RequestBody Map<String, Object> body) {
-        String code = ((String) body.get("code")).trim().toUpperCase();
-        String name = ((String) body.get("name")).trim();
-        long defaultAmount = Long.parseLong(body.getOrDefault("defaultAmount", 0).toString());
+    public ResponseEntity<ApiResponse<Void>> registerChargeCode(@Valid @RequestBody ChargeCodeRequest request) {
+        String code = request.code().trim().toUpperCase();
+        if (chargeCodeRepo.existsById(code)) {
+            throw new DuplicateResourceException("이미 존재하는 계정과목 코드입니다: " + code);
+        }
 
-        chargeCodeRepo.save(new FolioChargeCodeEntity(code, name, defaultAmount, false));
+        chargeCodeRepo.save(new FolioChargeCodeEntity(code, request.name().trim(), request.defaultAmount(), false));
         return ResponseEntity.ok(ApiResponse.ok("신규 계정과목이 등록되었습니다.", null));
     }
 
@@ -58,7 +78,8 @@ public class AccountingController {
     @DeleteMapping("/charge-codes/{code}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deleteChargeCode(@PathVariable String code) {
-        FolioChargeCodeEntity target = chargeCodeRepo.findById(code.toUpperCase()).orElseThrow();
+        FolioChargeCodeEntity target = chargeCodeRepo.findById(code.trim().toUpperCase())
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 계정과목입니다: " + code));
         if (target.isSystemDefault()) {
             return ResponseEntity.badRequest().body(ApiResponse.fail("시스템 기본 계정과목은 삭제할 수 없습니다."));
         }

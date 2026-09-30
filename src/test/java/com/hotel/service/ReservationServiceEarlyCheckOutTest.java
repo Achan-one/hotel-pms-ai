@@ -29,7 +29,7 @@ class ReservationServiceEarlyCheckOutTest {
     void setUp() {
         reservationRepository = new InMemoryReservationRepository();
         roomRepository = new InMemoryRoomRepository();
-        reservationService = new ReservationService(reservationRepository, roomRepository, null);
+        reservationService = ReservationServiceFixtures.inMemory(reservationRepository, roomRepository);
     }
 
     @Test

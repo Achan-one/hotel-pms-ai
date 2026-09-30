@@ -2,6 +2,7 @@ package com.hotel.api;
 
 import com.hotel.domain.ReservationStatus;
 import com.hotel.service.dto.ReservationSearchCondition;
+import com.hotel.service.HotelOperationService;
 import com.hotel.service.report.ReportExportService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -18,8 +19,12 @@ public class ReportExportController {
 
     private final ReportExportService reportExportService;
 
-    public ReportExportController(ReportExportService reportExportService) {
+    private final HotelOperationService hotelOperationService;
+
+    public ReportExportController(ReportExportService reportExportService,
+                                  HotelOperationService hotelOperationService) {
         this.reportExportService = reportExportService;
+        this.hotelOperationService = hotelOperationService;
     }
 
     /**
@@ -28,11 +33,13 @@ public class ReportExportController {
     @GetMapping("/in-house/csv")
     public ResponseEntity<byte[]> downloadInHouseGuestsCsv(
             @RequestParam(required = false) String targetDate) {
+        LocalDate businessDate = hotelOperationService.getCurrentBusinessDate();
         LocalDate date = (targetDate != null && !targetDate.isBlank())
-                ? LocalDate.parse(targetDate) : LocalDate.now();
+                ? LocalDate.parse(targetDate) : businessDate;
 
-        if (date.isAfter(LocalDate.now())) {
-            date = LocalDate.now();
+        // 아직 오지 않은 날짜의 투숙객 명단은 없으므로 영업일을 넘기지 않는다.
+        if (date.isAfter(businessDate)) {
+            date = businessDate;
         }
 
         String csvString = reportExportService.exportInHouseGuestListToCsv(date);
@@ -50,7 +57,7 @@ public class ReportExportController {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String status) {
         LocalDate start = (startDate != null && !startDate.isBlank())
-                ? LocalDate.parse(startDate) : LocalDate.now();
+                ? LocalDate.parse(startDate) : hotelOperationService.getCurrentBusinessDate();
 
         ReservationStatus resStatus = (status != null && !status.isBlank())
                 ? ReservationStatus.valueOf(status.toUpperCase()) : null;
@@ -73,7 +80,7 @@ public class ReportExportController {
     public ResponseEntity<byte[]> downloadSpecialRequestsCsv(
             @RequestParam(required = false) String targetDate) {
         LocalDate date = (targetDate != null && !targetDate.isBlank())
-                ? LocalDate.parse(targetDate) : LocalDate.now();
+                ? LocalDate.parse(targetDate) : hotelOperationService.getCurrentBusinessDate();
 
         String csvString = reportExportService.exportSpecialRequestSummaryToCsv(date);
         byte[] csvBytes = withBom(csvString);

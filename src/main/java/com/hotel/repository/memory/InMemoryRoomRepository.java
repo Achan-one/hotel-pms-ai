@@ -47,6 +47,27 @@ public class InMemoryRoomRepository implements RoomRepository {
         return new ArrayList<>(roomStore.values());
     }
 
+    @Override
+    public boolean addTag(String roomNumber, String tagCode) {
+        return findByRoomNumber(roomNumber).map(room -> {
+            room.addTag(tagCode);
+            return true;
+        }).orElse(false);
+    }
+
+    @Override
+    public boolean removeTag(String roomNumber, String tagCode) {
+        return findByRoomNumber(roomNumber).map(room -> {
+            room.removeTag(tagCode);
+            return true;
+        }).orElse(false);
+    }
+
+    @Override
+    public void removeTagFromAll(String tagCode) {
+        roomStore.values().forEach(room -> room.removeTag(tagCode));
+    }
+
     private void initRooms() {
         for (int floor = 3; floor <= 15; floor++) {
             for (int roomNum = 1; roomNum <= 16; roomNum++) {

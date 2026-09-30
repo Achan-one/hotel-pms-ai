@@ -1,6 +1,7 @@
 package com.hotel.security;
 
-import com.hotel.domain.StaffRole;
+import com.hotel.domain.StaffAccount;
+import com.hotel.repository.StaffRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,9 +18,11 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
+    private final StaffRepository staffRepository;
 
-    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider, StaffRepository staffRepository) {
         this.tokenProvider = tokenProvider;
+        this.staffRepository = staffRepository;
     }
 
     @Override
@@ -30,15 +33,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (StringUtils.hasText(token) && tokenProvider.validateToken(token)) {
             String username = tokenProvider.getUsername(token);
-            StaffRole role = tokenProvider.getRole(token);
 
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    username,
-                    null,
-                    List.of(new SimpleGrantedAuthority(role.name()))
-            );
-
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            // 토큰은 서명과 만료만 보증한다. 퇴사 처리나 권한 변경이 바로 반영되도록 계정 상태와 역할은 DB 기준으로 본다.
+            StaffAccount account = staffRepository.findByStaffId(username).orElse(null);
+            if (account != null && account.enabled()) {
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                        account.staffId(),
+                        null,
+                        List.of(new SimpleGrantedAuthority(account.role().name()))
+                );
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
         }
 
         filterChain.doFilter(request, response);

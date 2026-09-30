@@ -10,6 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.OptimisticLockingFailureException;
 
+import com.hotel.service.dto.PageResult;
+import com.hotel.service.dto.ReservationSearchCondition;
+
 import java.time.LocalDate;
 import java.util.Optional;
 
@@ -83,5 +86,42 @@ class JpaPersistenceTest {
 
         assertEquals("김철수", reservationRepository.findById(rsvId).orElseThrow().getOriginalGuestName());
         reservationRepository.deleteById(rsvId);
+    }
+
+    @Test
+    @DisplayName("[페이징] stayingDate 조건은 체류 판정으로 걸러낸 뒤에 페이지를 자른다")
+    void pagedSearchWithStayingDate_FiltersBeforeSlicing() {
+        LocalDate day = LocalDate.of(2027, 3, 10);
+        reservationRepository.save(new Reservation("RSV-PGS-1", "A", RoomType.SUPERIOR_TWIN, day, 3, null, GuestPreference.empty()));
+        reservationRepository.save(new Reservation("RSV-PGS-2", "B", RoomType.SUPERIOR_TWIN, day, 1, null, GuestPreference.empty()));
+        reservationRepository.save(new Reservation("RSV-PGS-3", "C", RoomType.SUPERIOR_TWIN, day.plusDays(5), 2, null, GuestPreference.empty()));
+
+        ReservationSearchCondition staying = ReservationSearchCondition.byStayingDate(day.plusDays(1));
+        PageResult<Reservation> page = reservationRepository.search(staying, 0, 1);
+
+        assertEquals(1, page.total());
+        assertEquals("RSV-PGS-1", page.items().get(0).getReservationId());
+
+        reservationRepository.deleteById("RSV-PGS-1");
+        reservationRepository.deleteById("RSV-PGS-2");
+        reservationRepository.deleteById("RSV-PGS-3");
+    }
+
+    @Test
+    @DisplayName("[페이징] 조건이 같으면 DB 페이징과 전체 조회의 결과 순서와 건수가 일치한다")
+    void dbPagingMatchesFullSearch() {
+        LocalDate day = LocalDate.of(2027, 4, 1);
+        for (int i = 1; i <= 5; i++) {
+            reservationRepository.save(new Reservation("RSV-PGD-" + i, "G" + i, RoomType.SUPERIOR_TWIN, day, 1, null, GuestPreference.empty()));
+        }
+        ReservationSearchCondition byDay = new ReservationSearchCondition(null, null, day, null, null, null, null, null, null, null);
+
+        PageResult<Reservation> second = reservationRepository.search(byDay, 1, 2);
+
+        assertEquals(5, second.total());
+        assertEquals(java.util.List.of("RSV-PGD-3", "RSV-PGD-4"),
+                second.items().stream().map(Reservation::getReservationId).toList());
+
+        for (int i = 1; i <= 5; i++) reservationRepository.deleteById("RSV-PGD-" + i);
     }
 }

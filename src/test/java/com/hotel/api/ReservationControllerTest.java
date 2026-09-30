@@ -56,15 +56,15 @@ class ReservationControllerTest {
                         .param("checkInDate", "2026-09-20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].reservationId").value("RSV-01"));
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].reservationId").value("RSV-01"));
 
         // When & Then 2: 고객명 검색 필터링 ("suzuki")
         mockMvc.perform(get("/api/reservations")
                         .param("guestName", "suzuki"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].reservationId").value("RSV-02"));
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].reservationId").value("RSV-02"));
     }
 
     @Test
@@ -126,5 +126,70 @@ class ReservationControllerTest {
     void apiWithoutAuth_Returns401() throws Exception {
         mockMvc.perform(get("/api/reservations/RSV-001"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(username = "staff_member", authorities = {"ROLE_STAFF"})
+    @DisplayName("[API] page, size를 주면 해당 페이지만 반환하고 전체 건수를 함께 알려준다")
+    void searchReservations_Paging() throws Exception {
+        for (int i = 1; i <= 5; i++) {
+            reservationRepository.save(new Reservation("RSV-PG-0" + i, "Guest" + i, RoomType.MODERATE_DOUBLE,
+                    targetDate, 1, null, GuestPreference.empty()));
+        }
+
+        mockMvc.perform(get("/api/reservations").param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].reservationId").value("RSV-PG-03"))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(2))
+                .andExpect(jsonPath("$.data.total").value(5));
+
+        mockMvc.perform(get("/api/reservations").param("page", "9").param("size", "2"))
+                .andExpect(jsonPath("$.data.items.length()").value(0))
+                .andExpect(jsonPath("$.data.total").value(5));
+    }
+
+    @Test
+    @WithMockUser(username = "staff_member", authorities = {"ROLE_STAFF"})
+    @DisplayName("[API] size 상한(500)을 넘겨 요청해도 상한까지만 적용된다")
+    void searchReservations_SizeIsCapped() throws Exception {
+        mockMvc.perform(get("/api/reservations").param("size", "100000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.size").value(500));
+    }
+
+    private void saveReservationWithSecrets() {
+        Reservation r = new Reservation("RSV-SECRET", "Tanaka", RoomType.MODERATE_DOUBLE, targetDate, 1, 1,
+                "요청", "<xml>OTA 원문</xml>", GuestPreference.empty(), null, null, null, null, null);
+        r.updateOperationalDetails(null, null, null, "내부 인계 메모");
+        reservationRepository.save(r);
+    }
+
+    @Test
+    @WithMockUser(username = "part_timer", authorities = {"ROLE_PART_TIME"})
+    @DisplayName("[API] 아르바이트에게는 OTA 전문 원문과 내부 메모가 내려가지 않는다")
+    void reservationResponse_HidesSensitiveFieldsFromPartTime() throws Exception {
+        saveReservationWithSecrets();
+
+        mockMvc.perform(get("/api/reservations/RSV-SECRET"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.rawXmlPayload").doesNotExist())
+                .andExpect(jsonPath("$.data.internalStaffMemo").doesNotExist())
+                .andExpect(jsonPath("$.data.guestName").value("Tanaka"));
+    }
+
+    @Test
+    @WithMockUser(username = "staff_member", authorities = {"ROLE_STAFF"})
+    @DisplayName("[API] 정직원에게는 내부 메모가 보이지만 OTA 전문 원문은 여전히 내려가지 않는다")
+    void reservationResponse_ShowsMemoToStaffButNeverRawXml() throws Exception {
+        saveReservationWithSecrets();
+
+        mockMvc.perform(get("/api/reservations/RSV-SECRET"))
+                .andExpect(jsonPath("$.data.internalStaffMemo").value("내부 인계 메모"))
+                .andExpect(jsonPath("$.data.rawXmlPayload").doesNotExist());
+
+        mockMvc.perform(get("/api/reservations").param("reservationId", "RSV-SECRET"))
+                .andExpect(jsonPath("$.data.items[0].rawXmlPayload").doesNotExist());
     }
 }

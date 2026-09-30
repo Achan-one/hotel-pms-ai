@@ -4,6 +4,7 @@ import com.hotel.domain.GuestPreference;
 import com.hotel.domain.Reservation;
 import com.hotel.domain.RoomType;
 import com.hotel.repository.ReservationRepository;
+import com.hotel.service.HotelOperationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,9 @@ class RoomIndicatorControllerTest {
 
     @Autowired
     private ReservationRepository reservationRepository;
+
+    @Autowired
+    private HotelOperationService hotelOperationService;
 
     private final LocalDate targetDate = LocalDate.of(2026, 9, 20);
 
@@ -74,5 +78,26 @@ class RoomIndicatorControllerTest {
     void getRoomIndicator_Anonymous_Returns401() throws Exception {
         mockMvc.perform(get("/api/rooms/indicator"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(username = "staff_member", authorities = {"ROLE_STAFF"})
+    @DisplayName("[룸 인디케이터] 날짜를 주지 않으면 서버 시각이 아니라 호텔 영업일 기준으로 조회한다")
+    void getRoomIndicator_DefaultsToBusinessDate() throws Exception {
+        LocalDate businessDate = LocalDate.of(2026, 11, 5);
+        hotelOperationService.resetBusinessDate(businessDate);
+        try {
+            Reservation res = new Reservation(
+                    "RSV-IND-BD", "Suzuki", RoomType.SUPERIOR_TWIN, businessDate, 2, null, GuestPreference.empty());
+            res.assignRoom("0301");
+            reservationRepository.save(res);
+
+            mockMvc.perform(get("/api/rooms/indicator"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.targetDate").value("2026-11-05"))
+                    .andExpect(jsonPath("$.data.floorRooms['3'][0].guestName").value("Suzuki"));
+        } finally {
+            hotelOperationService.resetBusinessDate(targetDate);
+        }
     }
 }

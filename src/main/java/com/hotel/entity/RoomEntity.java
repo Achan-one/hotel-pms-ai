@@ -3,6 +3,7 @@ package com.hotel.entity;
 import com.hotel.domain.RoomStatus;
 import com.hotel.domain.RoomType;
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -32,6 +33,7 @@ public class RoomEntity {
     private RoomStatus status;
 
     // 객실에 부여된 태그 목록 (별도 매핑 테이블 생성)
+    @BatchSize(size = 100)
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "room_tag_mappings", joinColumns = @JoinColumn(name = "room_number"))
     @Column(name = "tag_code", length = 50)

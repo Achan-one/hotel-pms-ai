@@ -1,5 +1,6 @@
 package com.hotel.service;
 
+import java.time.LocalDate;
 import com.hotel.domain.GuestPreference;
 import com.hotel.domain.GuestPreference.CornerPref;
 import com.hotel.domain.GuestPreference.ElevatorPref;
@@ -35,7 +36,7 @@ class BatchAssignerTest {
         // 단기 단순 예약 (1박, 조건 없음) - 리스트 앞에 배치
         Reservation shortStay = new Reservation(
                 "RSV-SHORT", "단기손님", RoomType.MODERATE_DOUBLE,
-                1, null, GuestPreference.empty()
+                LocalDate.of(2026, 9, 20), 1, null, GuestPreference.empty()
         );
 
         // 장기 까다로운 예약 (5박, 고층+엘베이격+코너+조용함) - 리스트 뒤에 배치
@@ -47,7 +48,7 @@ class BatchAssignerTest {
         );
         Reservation longStay = new Reservation(
                 "RSV-LONG", "장기손님", RoomType.MODERATE_DOUBLE,
-                5, null, strictPref
+                LocalDate.of(2026, 9, 20), 5, null, strictPref
         );
 
         // 입력 순서는 shortStay가 먼저이지만, BatchAssigner 내부에서 longStay가 우선 배정되어야 함

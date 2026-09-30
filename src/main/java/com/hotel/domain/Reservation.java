@@ -117,12 +117,6 @@ public class Reservation {
                 rawRequestText, null, preference, TagPreference.empty(), null, null, null, LocalTime.of(15, 0));
     }
 
-    public Reservation(String reservationId, String guestName, RoomType bookedRoomType,
-                       int stayNights, String rawRequestText, GuestPreference preference) {
-        this(reservationId, guestName, bookedRoomType, LocalDate.now(), stayNights, 1,
-                rawRequestText, null, preference, TagPreference.empty(), null, null, null, LocalTime.of(15, 0));
-    }
-
     // PMS 현장 관리용 수정 메서드
 
     public void updateOperationalDetails(String newGuestName, LocalDate newCheckInDate, Integer newStayNights, String staffMemo) {
@@ -193,10 +187,6 @@ public class Reservation {
         this.assignedRoomNumber = Objects.requireNonNull(newRoomNumber, "신규 호실 번호는 필수입니다.").trim();
     }
 
-    public void checkOut() {
-        checkOut(LocalDate.now());
-    }
-
     public void checkOut(LocalDate effectiveDate) {
         if (!this.status.isInHouse()) {
             throw new IllegalStateException("현재 숙박 중인 고객만 체크아웃할 수 있습니다.");
@@ -207,7 +197,7 @@ public class Reservation {
                 throw new IllegalStateException("미정산 금액(" + due + "원)이 남아있어 체크아웃할 수 없습니다.");
             }
         }
-        this.actualCheckOutDate = (effectiveDate != null) ? effectiveDate : LocalDate.now();
+        this.actualCheckOutDate = Objects.requireNonNull(effectiveDate, "퇴실 일자는 필수입니다.");
         this.status = ReservationStatus.CHECKED_OUT;
     }
 

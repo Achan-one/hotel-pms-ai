@@ -162,6 +162,19 @@ public class Room {
     }
 
     /**
+     * 저장소에서 읽은 상태를 전이 규칙 검사 없이 그대로 복원한다. 저장소 매핑 전용이다.
+     */
+    public void restoreStatus(RoomStatus persistedStatus) {
+        Objects.requireNonNull(persistedStatus, "persistedStatus는 필수입니다.");
+        lock.lock();
+        try {
+            this.status = persistedStatus;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
      * 상태 전이 규칙을 무시하고 공실로 되돌린다. 시뮬레이션 초기화처럼 운영 데이터를 통째로 리셋할 때만 쓴다.
      */
     public void forceVacant() {

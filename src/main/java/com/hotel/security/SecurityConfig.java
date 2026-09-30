@@ -2,6 +2,7 @@ package com.hotel.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import com.hotel.repository.StaffRepository;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -52,7 +53,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, StaffRepository staffRepository) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
@@ -64,6 +65,9 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+                        // 기본 핸들러는 sendError(403)를 써서 /error로 재디스패치되고, 그 요청은 인증 정보가 없어 401로 바뀐다.
+                        // 상태 코드만 직접 지정해 권한 부족이 403으로 나가게 한다.
+                        .accessDeniedHandler((request, response, denied) -> response.setStatus(HttpStatus.FORBIDDEN.value()))
                 )
                 .authorizeHttpRequests(auth -> auth
                         // 0. CORS Preflight (OPTIONS) 사전 검사는 인증 없이 무조건 허용
@@ -72,6 +76,7 @@ public class SecurityConfig {
                         // 1. 인증 공개 엔드포인트
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/admin/staff").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/admin/staff/*/enabled").hasAuthority("ROLE_ADMIN")
 
                         // 2. 시스템 API. 영업일 조회는 로그인한 직원 모두, 보정은 관리자, 그 외는 관리자와 직원.
                         .requestMatchers(HttpMethod.GET, "/api/system/business-date").authenticated()
@@ -119,7 +124,7 @@ public class SecurityConfig {
                         // 10. 그 외 모든 요청은 항상 마지막에 선언
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(new JwtAuthenticationFilter(tokenProvider), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JwtAuthenticationFilter(tokenProvider, staffRepository), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

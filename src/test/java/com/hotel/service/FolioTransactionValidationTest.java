@@ -24,7 +24,7 @@ class FolioTransactionValidationTest {
     @BeforeEach
     void setUp() {
         reservationRepository = new InMemoryReservationRepository();
-        reservationService = new ReservationService(reservationRepository, new InMemoryRoomRepository(), new AiPreferenceParser());
+        reservationService = ReservationServiceFixtures.inMemory(reservationRepository, new InMemoryRoomRepository());
         reservationRepository.save(new Reservation(
                 RSV_ID, "Tanaka", RoomType.SUPERIOR_TWIN,
                 LocalDate.of(2026, 9, 20), 1, null, GuestPreference.empty()));

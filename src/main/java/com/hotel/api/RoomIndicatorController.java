@@ -3,8 +3,10 @@ package com.hotel.api;
 import com.hotel.api.dto.ApiResponse;
 import com.hotel.domain.Reservation;
 import com.hotel.service.FloorStatusService;
+import com.hotel.service.HotelOperationService;
 import com.hotel.service.ReservationService;
 import com.hotel.service.dto.FloorMapResponseDto;
+import com.hotel.service.dto.ReservationSearchCondition;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,11 +23,14 @@ public class RoomIndicatorController {
 
     private final FloorStatusService floorStatusService;
     private final ReservationService reservationService;
+    private final HotelOperationService hotelOperationService;
 
     public RoomIndicatorController(FloorStatusService floorStatusService,
-                                   ReservationService reservationService) {
+                                   ReservationService reservationService,
+                                   HotelOperationService hotelOperationService) {
         this.floorStatusService = floorStatusService;
         this.reservationService = reservationService;
+        this.hotelOperationService = hotelOperationService;
     }
 
     /**
@@ -36,10 +41,12 @@ public class RoomIndicatorController {
     public ResponseEntity<ApiResponse<FloorMapResponseDto>> getRoomIndicator(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate targetDate) {
 
-        LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
-        List<Reservation> allReservations = reservationService.searchReservations(null);
+        LocalDate date = (targetDate != null) ? targetDate : hotelOperationService.getCurrentBusinessDate();
+        // 해당 일자에 머무는 예약만 가져온다. 전체 예약을 읽어 오지 않는다.
+        List<Reservation> stayingReservations = reservationService.searchReservations(
+                ReservationSearchCondition.byStayingDate(date));
 
-        FloorMapResponseDto matrix = floorStatusService.getFloorMatrix(date, allReservations);
+        FloorMapResponseDto matrix = floorStatusService.getFloorMatrix(date, stayingReservations);
         return ResponseEntity.ok(ApiResponse.ok(matrix));
     }
 }

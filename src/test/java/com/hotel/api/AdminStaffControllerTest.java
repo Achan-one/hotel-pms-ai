@@ -1,5 +1,7 @@
 package com.hotel.api;
 
+import com.hotel.domain.StaffAccount;
+import com.hotel.domain.StaffRole;
 import com.hotel.repository.StaffRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -72,7 +74,9 @@ class AdminStaffControllerTest {
     @WithMockUser(username = "admin_user", authorities = {"ROLE_ADMIN"})
     @DisplayName("[유효성 검증] 이미 등록된 ID로 생성 시 400 Bad Request를 반환해야 한다")
     void createStaff_DuplicateId_BadRequest() throws Exception {
-        // data.sql에 이미 존재하는 'staff' ID로 시도
+        // 픽스처로 'staff' 계정을 직접 만든다. .env나 다른 테스트가 남긴 데이터에 기대지 않는다.
+        staffRepository.save(new StaffAccount("staff", "hash", "정규사원", StaffRole.ROLE_STAFF));
+
         String payload = """
                 {
                     "staffId": "staff",
