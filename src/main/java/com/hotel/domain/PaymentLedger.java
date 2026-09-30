@@ -9,7 +9,7 @@ public class PaymentLedger {
     private final PaymentType paymentType;
     private final List<FolioTransaction> transactions = new ArrayList<>();
 
-    // 🚀 사전 청구 강제 생성을 없앰 (체크인 전에는 원장이 0원이어야 정상)
+    // 사전 청구 강제 생성을 없앰 (체크인 전에는 원장이 0원이어야 정상)
     public PaymentLedger(PaymentType paymentType, long roomRateTotal) {
         this.paymentType = paymentType != null ? paymentType : PaymentType.PAY_ON_ARRIVAL;
     }
@@ -30,7 +30,7 @@ public class PaymentLedger {
         }
     }
 
-    // 🚀 이용 명세 등록 (+): 부대시설, 미니바, 엑스트라 베드 등 한 줄씩 청구 추가
+    // 이용 명세 등록 (+): 부대시설, 미니바, 엑스트라 베드 등 한 줄씩 청구 추가
     public void addCharge(String category, String description, long amount) {
         this.transactions.add(new FolioTransaction(
                 FolioTransaction.TransactionType.CHARGE,
@@ -40,7 +40,7 @@ public class PaymentLedger {
         ));
     }
 
-    // 🚀 수납 등록 (-): 카드, 현금 결제 한 줄씩 수납 추가
+    // 수납 등록 (-): 카드, 현금 결제 한 줄씩 수납 추가
     public void recordPayment(String paymentMethod, String memo, long amount) {
         this.transactions.add(new FolioTransaction(
                 FolioTransaction.TransactionType.PAYMENT,

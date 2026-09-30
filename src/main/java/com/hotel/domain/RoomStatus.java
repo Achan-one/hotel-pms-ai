@@ -42,7 +42,7 @@ public enum RoomStatus {
         return switch (this) {
             case VACANT -> target == ASSIGNED || target == OCCUPIED || target == OUT || target == BLOCKED || target == BREAK;
             case ASSIGNED -> target == OCCUPIED || target == VACANT || target == OUT || target == BLOCKED || target == BREAK;
-            case OCCUPIED -> target == OUT; // 투숙 중인 객실은 무조건 퇴실(OUT)만 가능 (VACANT 직접 건너뛰기 방어 핵심)
+            case OCCUPIED -> target == OUT; // 투숙 중인 객실은 퇴실(OUT)로만 전이 가능 (VACANT으로 바로 갈 수 없음)
             case OUT -> target == CLEANING || target == BLOCKED || target == BREAK;
             case CLEANING -> target == VACANT || target == OUT || target == BREAK;
             case BLOCKED, BREAK -> target == OUT || target == CLEANING || target == VACANT;

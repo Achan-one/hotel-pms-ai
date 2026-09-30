@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RoomRepositoryTest {
 
     @Autowired
-    private RoomRepository repository; // 👈 InMemory 대신 스프링 컨텍스트의 JpaRoomRepository 주입
+    private RoomRepository repository; // InMemory 대신 스프링 컨텍스트의 JpaRoomRepository 주입
 
     @Test
     @DisplayName("DB에 적재된 총 등록 객실 수는 정확히 191실이어야 한다")

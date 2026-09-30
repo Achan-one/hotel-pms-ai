@@ -44,7 +44,7 @@ public class ReservationService {
     private final ReservationValidator validator;
     private final CityLedgerRepository cityLedgerRepository;
 
-    // 1. 스프링 컨테이너 자동 주입용 정석 생성자
+    // 1. 스프링 주입용 생성자
     @Autowired
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
@@ -70,7 +70,7 @@ public class ReservationService {
         this(reservationRepository, roomRepository, aiParser, tagRepository, quotaPolicy, new InMemoryCityLedgerRepository());
     }
 
-    // 3. 단위 테스트 편의용 3개 인자 생성자
+    // 3. 단위 테스트용 생성자
     public ReservationService(ReservationRepository reservationRepository,
                               RoomRepository roomRepository,
                               AiPreferenceParser aiParser) {
@@ -164,7 +164,7 @@ public class ReservationService {
             Room room = roomRepository.findByRoomNumberForUpdate(roomNumber)
                     .orElseThrow(() -> new IllegalArgumentException("해당 호실(" + roomNumber + ")이 존재하지 않습니다."));
 
-            // 🚀 [중복 체크인 방어 1] 물리적 객실이 이미 재실(OCCUPIED) 상태인 경우 체크인 차단
+            // 물리적 객실이 이미 재실(OCCUPIED) 상태인 경우 체크인 차단
             if (room.getStatus() == RoomStatus.OCCUPIED) {
                 throw new IllegalStateException(String.format(
                         "[%s호] 현재 다른 투숙객이 재실 중인 객실입니다. 이전 투숙객의 퇴실 및 청소가 완료되어야 체크인이 가능합니다.",
@@ -172,7 +172,7 @@ public class ReservationService {
                 ));
             }
 
-            // 🚀 [중복 체크인 방어 2] 해당 방의 상태가 입실 가능한 상태(VACANT, ASSIGNED)인지 검증
+            // 해당 방의 상태가 입실 가능한 상태(VACANT, ASSIGNED)인지 검증
             if (room.getStatus() == RoomStatus.OUT || room.getStatus() == RoomStatus.CLEANING) {
                 throw new IllegalStateException(String.format(
                         "[%s호] 청소가 완료되지 않은 객실입니다. (현재 상태: %s)",
@@ -186,7 +186,7 @@ public class ReservationService {
                 ));
             }
 
-            // 🚀 [스케줄 점유 확정]
+            // 스케줄 점유 확정
             StayPeriod period = new StayPeriod(reservation.getCheckInDate(), reservation.getStayNights());
             if (!room.getBookedPeriods().contains(period)) {
                 if (!room.tryBookPeriod(period)) {
@@ -368,7 +368,7 @@ public class ReservationService {
             });
         }
 
-        // 🚀 [City Ledger] OTA 사전결제(PREPAID) 건은 체크아웃 시 OTA 외상매출금 정산 원장에 자동 기록
+        // OTA 사전결제(PREPAID) 건은 체크아웃 시 City Ledger에 정산 내역으로 기록한다
         if (reservation.getPaymentLedger() != null && reservation.getPaymentLedger().getPaymentType() == PaymentLedger.PaymentType.PREPAID) {
             long billedAmount = reservation.getPaymentLedger().getTotalCharges();
             BookingChannelInfo.ChannelType channel = (reservation.getChannelInfo() != null)
@@ -395,7 +395,7 @@ public class ReservationService {
     }
 
     /**
-     * 원장 수납/청구 거래 등록 (Audit Trail: 각 거래를 개별 전표로 영구 누적)
+     * 원장 수납/청구 거래 등록. 거래는 수정하지 않고 건별로 누적한다.
      */
     public void addFolioTransaction(String reservationId,
                                     String type,

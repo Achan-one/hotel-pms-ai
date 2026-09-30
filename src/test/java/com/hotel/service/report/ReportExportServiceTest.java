@@ -41,7 +41,7 @@ class ReportExportServiceTest {
 
         // 1. 어제 체크인한 3박 연박 재실 고객 (9/20 ~ 9/23) -> 오늘(9/21) 기준 2일 차 In-House
         PaymentLedger paidLedger = new PaymentLedger(PaymentLedger.PaymentType.PREPAID, 0);
-        paidLedger.addCharge("ROOM_RATE", "연박 객실료 총액", 300_000L); // 🚀 명시적 청구 추가
+        paidLedger.addCharge("ROOM_RATE", "연박 객실료 총액", 300_000L); // 명시적 청구 추가
         Reservation stayOver = new Reservation(
                 "RSV-STAY-01", "Tanaka", RoomType.MODERATE_DOUBLE,
                 yesterday, 3, 1, "조용히", GuestPreference.empty(),
@@ -56,7 +56,7 @@ class ReportExportServiceTest {
 
         // 2. 어제 체크인하고 오늘(9/21) 출발 예정인 1박 현장결제 미수금 고객 (9/20 ~ 9/21)
         PaymentLedger unpaidLedger = new PaymentLedger(PaymentLedger.PaymentType.PAY_ON_ARRIVAL, 0);
-        unpaidLedger.addCharge("ROOM_RATE", "현장 결제 1박 룸차지", 150_000L); // 🚀 명시적 청구 추가
+        unpaidLedger.addCharge("ROOM_RATE", "현장 결제 1박 룸차지", 150_000L); // 명시적 청구 추가
         Reservation departingToday = new Reservation(
                 "RSV-DEP-01", "Suzuki", RoomType.SUPERIOR_DOUBLE,
                 yesterday, 1, 1, "엘리베이터 근처", GuestPreference.empty(),

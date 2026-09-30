@@ -14,8 +14,8 @@ public record ReservationSearchCondition(
         RoomType roomType,           // 예약 객실 타입
         ReservationStatus status,    // 예약 상태
         String assignedRoomNumber,   // 배정된 방 번호
-        String tag,                  // 🏷️ 태그 검색 (선호/기피 태그 코드 또는 원문 키워드)
-        String otaChannel            // 🌐 OTA 채널 검색 (AGODA, BOOKING_COM, EXPEDIA 등)
+        String tag,                  // 태그 검색 (선호/기피 태그 코드 또는 원문 키워드)
+        String otaChannel            // OTA 채널 검색 (AGODA, BOOKING_COM, EXPEDIA 등)
 ) {
     // 빈 검색 조건 팩토리 메서드 (전수 검색 시 사용)
     public static ReservationSearchCondition empty() {

@@ -177,7 +177,7 @@ public class Room {
 
     /**
      * 특정 고객의 투숙 기간(targetPeriod)을 타겟팅하여 moveDate 이후 잔여 일정을 단축/회수합니다.
-     * 동일 객실에 이후 날짜로 예약된 다른 고객의 스케줄은 절대 훼손되지 않습니다.
+     * 동일 객실에 이후 날짜로 예약된 다른 고객의 스케줄은 건드리지 않는다.
      */
     public void truncatePeriodFrom(StayPeriod targetPeriod, LocalDate moveDate) {
         if (moveDate == null) return;

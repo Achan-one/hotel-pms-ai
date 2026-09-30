@@ -29,7 +29,7 @@ public class RoomIndicatorController {
     }
 
     /**
-     * 191실 층별 실시간 룸 인디케이터 / 룸 랙 매트릭스 조회
+     * 층별 룸 인디케이터 / 룸 랙 매트릭스 조회
      * GET /api/rooms/indicator?targetDate=2026-09-20
      */
     @GetMapping("/indicator")

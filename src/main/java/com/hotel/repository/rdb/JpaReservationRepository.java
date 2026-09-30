@@ -137,7 +137,7 @@ public class JpaReservationRepository implements ReservationRepository {
             predicates.add(cb.equal(root.get("assignedRoomNumber"), condition.assignedRoomNumber().trim()));
         }
 
-        // 🌐 OTA 채널 검색: channelType Enum 매핑 또는 internalStaffMemo 내 [OTA] 프리픽스 매칭
+        // OTA 채널 검색: channelType Enum 매핑 또는 internalStaffMemo 내 [OTA] 프리픽스 매칭
         if (condition.otaChannel() != null && !condition.otaChannel().isBlank()) {
             String otaUpper = condition.otaChannel().trim().toUpperCase();
 

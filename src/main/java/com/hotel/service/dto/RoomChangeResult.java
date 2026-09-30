@@ -11,9 +11,7 @@ public record RoomChangeResult(
         int remainingNights,
         String message
 ) {
-    // ==========================================
     // 기존 코드 호환용 편의 게터 (fromRoomNumber, toRoomNumber)
-    // ==========================================
     public String fromRoomNumber() {
         return originRoomNumber;
     }
@@ -22,9 +20,7 @@ public record RoomChangeResult(
         return targetRoomNumber;
     }
 
-    // ==========================================
     // 팩토리 메서드들
-    // ==========================================
     public static RoomChangeResult failure(String reservationId, String message) {
         return new RoomChangeResult(false, reservationId, null, null, null, 0, message);
     }

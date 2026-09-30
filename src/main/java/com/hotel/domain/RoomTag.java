@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 
 /**
- * 객실에 동적으로 부여되는 태그 정의 (불변 레코드)
+ * 객실에 부여하는 태그 정의 (불변 레코드)
  */
 public record RoomTag(
         String code,
@@ -44,7 +44,7 @@ public record RoomTag(
         public String getDesc() { return desc; }
     }
 
-    // 🔒 시스템 기본 물리 태그 (삭제 불가)
+    // 시스템 기본 물리 태그 (삭제 불가)
     public static final RoomTag HIGH_FLOOR = new RoomTag(
             "HIGH_FLOOR", "고층", "10층 이상의 상층부 객실. 고층 전망, 뷰 선호", TagCategory.FLOOR, TagStrictness.SOFT, 15, true);
 

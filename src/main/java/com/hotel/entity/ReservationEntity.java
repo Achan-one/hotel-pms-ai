@@ -122,7 +122,7 @@ public class ReservationEntity {
     @Column(name = "daily_rates_json", columnDefinition = "LONGTEXT")
     private String dailyRatesJson;
 
-    // 🚀 Folio 거래 내역 원본 JSON
+    // Folio 거래 내역 원본 JSON
     @Lob
     @Column(name = "transactions_json", columnDefinition = "LONGTEXT")
     private String transactionsJson;
@@ -209,7 +209,7 @@ public class ReservationEntity {
             breakfast.issueTickets();
         }
 
-        // 🚀 원장 복원: DB transactions_json 내역을 그대로 복원
+        // 원장 복원: DB transactions_json 내역을 그대로 복원
         PaymentLedger payment = new PaymentLedger(
                 this.paymentType != null ? this.paymentType : PaymentLedger.PaymentType.PAY_ON_ARRIVAL,
                 this.totalCharges,

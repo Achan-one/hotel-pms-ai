@@ -162,7 +162,7 @@ public class JpaRoomRepository implements RoomRepository {
 
         List<String> roomNumbers = entities.stream().map(RoomEntity::getRoomNumber).toList();
 
-        // 🚀 N+1 방어: 191번 개별 쿼리 대신 IN 절 1회로 모든 스케줄 조회
+        // N+1 방지: 객실별 개별 쿼리 대신 IN 절 한 번으로 스케줄 조회
         List<RoomScheduleEntity> allSchedules = scheduleJpaRepo.findByRoomNumberIn(roomNumbers);
         Map<String, List<RoomScheduleEntity>> scheduleMap = allSchedules.stream()
                 .collect(Collectors.groupingBy(RoomScheduleEntity::getRoomNumber));

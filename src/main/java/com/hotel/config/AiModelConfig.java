@@ -5,7 +5,7 @@ import com.hotel.util.EnvLoader;
 public class AiModelConfig {
 
     private static final String DEFAULT_MODEL = "gemini-2.5-flash";
-    private static final double DEFAULT_TEMPERATURE = 0.1; // JSON 파싱/분류는 0.0~0.2가 최적
+    private static final double DEFAULT_TEMPERATURE = 0.1; // JSON 파싱/분류는 0.0~0.2 정도로 낮게 둔다
     private static final int DEFAULT_THINKING_BUDGET = 0;   // 0: 비활성화(초고속), 양수: 추론 토큰 예산
 
     private final String modelName;

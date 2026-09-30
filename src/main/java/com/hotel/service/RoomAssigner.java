@@ -37,7 +37,7 @@ public class RoomAssigner {
     public Optional<Room> assign(Reservation reservation) {
         Objects.requireNonNull(reservation, "reservation은 필수입니다.");
 
-        // 종결된 예약의 재배정 방어
+        // 종결된 예약은 재배정하지 않음
         if (reservation.getStatus() == ReservationStatus.CANCELLED || reservation.getStatus() == ReservationStatus.CHECKED_OUT) {
             return Optional.empty();
         }
@@ -60,7 +60,7 @@ public class RoomAssigner {
             return Optional.empty();
         }
 
-        // 2. 타입별 킵 방어 검증
+        // 2. 타입별 킵 수량 검증
         int typeHoldQuota = quotaPolicy.getTypeHoldQuota(bookedType);
         long minDailyVacant = calculateMinDailyVacant(bookedType, reservation.getCheckInDate(), reservation.getStayNights());
         if (minDailyVacant <= typeHoldQuota) {
@@ -89,7 +89,7 @@ public class RoomAssigner {
         }
         final List<Room> effectiveCandidates = hardFiltered;
 
-        // 4. 태그별 킵 방어 필터링 (effectively final 변수인 effectiveCandidates 사용)
+        // 4. 태그별 킵 수량 필터링 (effectively final 변수인 effectiveCandidates 사용)
         List<Room> allocatableCandidates = effectiveCandidates.stream()
                 .filter(room -> isRoomAllocatableUnderQuota(room, effectiveCandidates, tagPref))
                 .toList();

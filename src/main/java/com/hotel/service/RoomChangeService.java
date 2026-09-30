@@ -77,7 +77,7 @@ public class RoomChangeService {
                             targetRoomNumber, remainingPeriod));
         }
 
-        // 기존 객실의 대상 예약 스케줄만 정밀 타겟 단축 및 청소대기(OUT) 전이
+        // 기존 객실은 해당 예약의 스케줄만 줄이고 청소대기(OUT)로 전이
         if (originRoomNumber != null) {
             roomRepository.findByRoomNumber(originRoomNumber.trim()).ifPresent(originRoom -> {
                 originRoom.truncatePeriodFrom(originalPeriod, moveDate);

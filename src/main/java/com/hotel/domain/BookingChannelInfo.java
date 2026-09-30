@@ -4,7 +4,7 @@ import java.util.Objects;
 
 public record BookingChannelInfo(
         ChannelType channelType,     // JALAN, RAKUTEN, AGODA, DIRECT 등
-        String channelReservationNo, // OTA 원천 예약 번호 (예: TLX-RAKUTEN-99120)
+        String channelReservationNo, // OTA 예약 번호 (예: TLX-RAKUTEN-99120)
         String planName              // 플랜명 (예: "【早割30】朝食付スタンダードプラン")
 ) {
     public BookingChannelInfo {

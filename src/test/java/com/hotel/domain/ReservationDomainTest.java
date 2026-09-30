@@ -35,7 +35,7 @@ class ReservationDomainTest {
     void checkOut_BlockedWhenUnsettled() {
         Reservation reservation = createSampleReservation(PaymentLedger.PaymentType.PAY_ON_ARRIVAL, 60000);
 
-        // 🚀 테스트 환경 보정: 미납 잔액 유도를 위한 청구 전표 명시적 주입
+        // 테스트 환경 보정: 미납 잔액 유도를 위한 청구 전표 명시적 주입
         reservation.getPaymentLedger().addCharge("ROOM_CHARGE", "객실료 청구", 60000);
 
         reservation.assignRoom("0501");

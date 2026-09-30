@@ -48,7 +48,7 @@ public class NightAuditService {
     }
 
     /**
-     * 🚀 [0박 지원] 미체크인 예약 익일 이월 (1박 차감)
+     * [0박 지원] 미체크인 예약 익일 이월 (1박 차감)
      * - 2박 이상 -> 1박 차감 후 익일 체크인으로 이월
      * - 1박 단박 -> 취소하지 않고 '0박 (새벽 체크인 / 당일 아웃)'으로 전환하여 객실 유지!
      * - 이미 0박이었던 예약만 다음 날 마감 시 최종 노쇼(CANCELLED) 처리
@@ -73,7 +73,7 @@ public class NightAuditService {
                 }
                 rsv.cancelReservation();
                 reservationRepository.save(rsv);
-                log.warn("⚠️ [No-Show] 0박 최종 미도착 예약 노쇼 취소 완료: {} ({})", rsv.getReservationId(), rsv.getGuestName());
+                log.warn("[No-Show] 0박 최종 미도착 예약 노쇼 취소 완료: {} ({})", rsv.getReservationId(), rsv.getGuestName());
             } else {
                 // 1박 및 연박 예약: 1박 차감 (1박 -> 0박, 2박 -> 1박)
                 int newNights = rsv.getStayNights() - 1;
@@ -108,7 +108,7 @@ public class NightAuditService {
                 );
 
                 reservationRepository.save(rsv);
-                log.info("🔄 [Rollover] 미도착 예약 익일 이월 완료: {} (새 체크인: {}, 잔여: {}박, 객실: {}호 유지)",
+                log.info("[Rollover] 미도착 예약 익일 이월 완료: {} (새 체크인: {}, 잔여: {}박, 객실: {}호 유지)",
                         rsv.getReservationId(), nextDate, newNights, roomNo);
             }
             processedCount++;
@@ -122,9 +122,9 @@ public class NightAuditService {
      */
     public NightAuditResult runNightAudit(LocalDate currentBusinessDate) {
         Objects.requireNonNull(currentBusinessDate, "영업일자는 필수입니다.");
-        log.info("🌙 [Night Audit] 야간 일일 마감 시작 - 기준일: {}", currentBusinessDate);
+        log.info("[Night Audit] 야간 일일 마감 시작 - 기준일: {}", currentBusinessDate);
 
-        // 1. 선행 방어: 미체크인 당일 예약 검증
+        // 1. 사전 점검: 미체크인 당일 예약 확인
         List<Reservation> unchecked = getUncheckedArrivals(currentBusinessDate);
         if (!unchecked.isEmpty()) {
             throw new IllegalStateException(String.format(
@@ -157,7 +157,7 @@ public class NightAuditService {
         // 3. DB 시스템 영업일자 익일 롤오버
         LocalDate nextBusinessDate = hotelOperationService.rolloverToNextDate();
 
-        log.info("✅ [Night Audit] 마감 완료 - 룸차지 포스팅: {}실(총 ¥{}), 롤오버: {} -> {}",
+        log.info("[Night Audit] 마감 완료 - 룸차지 포스팅: {}실(총 ¥{}), 롤오버: {} -> {}",
                 postedCount, totalRevenue, currentBusinessDate, nextBusinessDate);
 
         return new NightAuditResult(

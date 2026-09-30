@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
 /**
- * 대용량 데이터 덤프(전체 테이블 스캔) 방어 및 리포트 조회 제약 정책.
+ * 전체 테이블 스캔을 막기 위한 리포트 조회 제약 정책.
  */
 public final class ReportPolicy {
 

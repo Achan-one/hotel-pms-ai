@@ -54,7 +54,7 @@ public class ReservationController {
             String instantChargeDescription // 동시 분개 상세
     ) {}
 
-    // 🚀 [신규] 예약별 원장 수납/청구 거래 등록 API (복식 분개 지원)
+    // 예약별 원장 수납/청구 거래 등록 (청구와 수납 동시 분개 지원)
     @PostMapping("/{reservationId}/folio/transactions")
     public ResponseEntity<ApiResponse<Void>> addFolioTransaction(
             @PathVariable String reservationId,

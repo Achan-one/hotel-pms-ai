@@ -54,7 +54,7 @@ public class StaffDataInitializer implements CommandLineRunner {
                     name,
                     role
             ));
-            log.info("🛡️ [StaffDataInitializer] .env 환경 변수로부터 계정 생성 완료: {} ({})", normalizedId, role);
+            log.info("[StaffDataInitializer] .env 환경 변수로부터 계정 생성 완료: {} ({})", normalizedId, role);
         }
     }
 }

@@ -50,7 +50,7 @@ public class TestDataGeneratorService {
     }
 
     /**
-     * 🚀 지정된 기준일자(baseDate)를 중심으로 50개의 고유 예약 생성 및 도메인 라이프사이클 분배
+     * 지정된 기준일자(baseDate)를 중심으로 50개의 고유 예약 생성 및 도메인 라이프사이클 분배
      */
     public List<Reservation> generate50DynamicReservations(LocalDate baseDate) {
         Random random = new Random(baseDate.toEpochDay()); // 동일 일자에 대해 일관된 시드 보장

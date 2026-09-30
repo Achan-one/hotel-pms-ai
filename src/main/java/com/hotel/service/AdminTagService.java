@@ -40,7 +40,7 @@ public class AdminTagService {
     }
 
     /**
-     * [신규] 관리자가 객실 타입별 킵 수량을 동적으로 변경
+     * 관리자가 객실 타입별 킵 수량을 변경
      */
     public void updateRoomTypeHoldQuota(boolean isAdmin, RoomType type, int quota) {
         validateAdminRole(isAdmin);
@@ -48,7 +48,7 @@ public class AdminTagService {
     }
 
     /**
-     * [신규] 관리자가 특정 태그의 킵 수량을 동적으로 변경
+     * 관리자가 특정 태그의 킵 수량을 변경
      */
     public void updateTagHoldQuota(boolean isAdmin, String tagCode, int quota) {
         validateAdminRole(isAdmin);

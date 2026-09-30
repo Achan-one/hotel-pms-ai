@@ -63,9 +63,9 @@ public class BatchAssignmentResult {
     public String toSummaryString() {
         return String.format("""
             ==================================================
-            📊 [배치 배정 결과 요약]
+            [배치 배정 결과 요약]
             - 총 요청 건수: %d건
-            - 배정 성공: %d건 (⚠️ 하드 리퀘스트 주의 요망: %d건)
+            - 배정 성공: %d건 (하드 리퀘스트 주의 요망: %d건)
             - 배정 실패(만실 등): %d건
             ==================================================""",
                 getTotalCount(), getSuccessCount(), getAlertCount(), getFailureCount());

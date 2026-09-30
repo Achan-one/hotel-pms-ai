@@ -1,6 +1,6 @@
 spring:
   datasource:
-    # ⚠️ MODE=PostgreSQL -> MODE=MySQL 로 변경
+    # MODE=PostgreSQL -> MODE=MySQL 로 변경
     url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL;NON_KEYWORDS=USER
     driver-class-name: org.h2.Driver
     username: sa
@@ -14,7 +14,7 @@ spring:
     init:
       mode: always
 
-  # 🚀 테스트 시 Flyway 자동 실행 방지 (H2는 data.sql로 가볍게 구동)
+  # 테스트 시 Flyway 자동 실행 방지 (H2는 data.sql로 가볍게 구동)
   flyway:
     enabled: false
 

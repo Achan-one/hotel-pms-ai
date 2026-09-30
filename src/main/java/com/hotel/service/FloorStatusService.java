@@ -38,7 +38,7 @@ public class FloorStatusService {
                         }
                     }
 
-                    // 2. [룸 무브 역추적 방어] 이전 호실(previousRoomNumber)에 머물렀던 과거 날짜도 유령 객실이 되지 않도록 고객 정보 매핑
+                    // 2. 룸 무브: 이전 호실(previousRoomNumber)에 머물렀던 과거 날짜도 유령 객실이 되지 않도록 고객 정보 매핑
                     if (res.getPreviousRoomNumber() != null && !date.isBefore(checkIn)) {
                         String prevRoom = res.getPreviousRoomNumber().trim();
                         // 이전 객실에 여전히 스케줄 이력(bookedPeriods)이 남아있는 경우 고객 정보 연결
@@ -88,7 +88,7 @@ public class FloorStatusService {
                     rsvId,
                     guestName,
                     stayPeriodStr,
-                    room.getTags() // 👈 추가: DTO로 객실 태그 전달
+                    room.getTags() // 추가: DTO로 객실 태그 전달
             ));
         }
 

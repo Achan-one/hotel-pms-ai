@@ -15,7 +15,7 @@ public class FolioTransaction {
     private String description;   // 메모
     private long amount;          // 금액
 
-    // 🚀 Jackson 역직렬화에 필수적인 기본 생성자
+    // Jackson 역직렬화에 필수적인 기본 생성자
     protected FolioTransaction() {}
 
     public FolioTransaction(TransactionType type, String category, String description, long amount) {

@@ -29,9 +29,7 @@ public class ReportExportService {
         this.roomAssigner = Objects.requireNonNull(roomAssigner, "roomAssigner는 필수입니다.");
     }
 
-    // =========================================================================
     // 1. 조건부 예약 원장 (Protected Reservation Ledger)
-    // =========================================================================
     public String exportReservationsToCsv(ReservationSearchCondition condition) {
         ReportPolicy.validateExportCondition(condition);
 
@@ -59,9 +57,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, list);
     }
 
-    // =========================================================================
     // 2. 당일 도착 예정자 명단 (Arrivals List)
-    // =========================================================================
     public List<ArrivalReportItemDto> getArrivalList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Reservation> arrivals = reservationRepository.findByCheckInDate(date);
@@ -103,9 +99,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, list);
     }
 
-    // =========================================================================
     // 3. 당일 출발 예정자 명단 (Departures List)
-    // =========================================================================
     public List<DepartureReportItemDto> getDepartureList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Reservation> allReservations = reservationRepository.search(ReservationSearchCondition.empty());
@@ -153,9 +147,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, list);
     }
 
-    // =========================================================================
     // 4. 재실 숙박자 명단 (In-House Guest List)
-    // =========================================================================
     public List<InHouseGuestDto> getInHouseGuestList(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Reservation> stayingList = reservationRepository.search(ReservationSearchCondition.byStayingDate(date));
@@ -200,9 +192,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, list);
     }
 
-    // =========================================================================
     // 5. 룸 밸런스 리포트 (Room Balance Reconciliation)
-    // =========================================================================
     public List<RoomBalanceReportDto> getRoomBalanceReport(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Room> allRooms = roomRepository.findAll();
@@ -264,9 +254,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, list);
     }
 
-    // =========================================================================
     // 6. 스페셜 리퀘스트 요약 명단 (배정객실보유태그 컬럼 추가)
-    // =========================================================================
     public List<SpecialRequestReportDto> getSpecialRequestSummary(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Reservation> arrivals = reservationRepository.findByCheckInDate(date);
@@ -334,9 +322,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, list);
     }
 
-    // =========================================================================
     // 7. 하우스키핑 작업 지시서
-    // =========================================================================
     public List<HousekeepingWorkItemDto> getHousekeepingWorkSheet(LocalDate targetDate) {
         LocalDate date = (targetDate != null) ? targetDate : LocalDate.now();
         List<Room> allRooms = roomRepository.findAll();
@@ -406,9 +392,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, list);
     }
 
-    // =========================================================================
     // 8. 취소 및 노쇼 감사 장부
-    // =========================================================================
     public String exportCancellationAuditLedgerToCsv(LocalDate checkInFrom, LocalDate checkInTo) {
         ReportPolicy.validateDateRange(checkInFrom, checkInTo);
 
@@ -432,9 +416,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, cancelledList);
     }
 
-    // =========================================================================
     // 9. 룸 태그 인디케이터 (1) - 191실 전수 방 기준 보유 태그 리포트
-    // =========================================================================
     public String exportRoomTagsToCsv() {
         List<Room> allRooms = roomRepository.findAll().stream()
                 .sorted(Comparator.comparing(Room::getFloor)
@@ -456,9 +438,7 @@ public class ReportExportService {
         return CsvSerializer.serialize(headers, mappers, allRooms);
     }
 
-    // =========================================================================
     // 10. 룸 태그 인디케이터 (2) - 태그 기준 해당 객실 목록 매핑 리포트
-    // =========================================================================
     public record TagRoomMappingRow(String tagCode, int matchedRoomCount, String matchedRooms) {}
 
     public String exportTagToRoomsMatrixToCsv() {

@@ -8,9 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 
 public class Reservation {
-    // ==========================================
-    // 1. [불변] OTA / 채널 매니저 원천 계약 원장 (Audit Trail)
-    // ==========================================
+    // 1. 불변: OTA / 채널 매니저에서 들어온 계약 원본
     private final String reservationId;
     private final String originalGuestName;       // OTA 인입 시점 원문 고객명
     private final RoomType bookedRoomType;         // OTA 계약 룸타입
@@ -19,9 +17,7 @@ public class Reservation {
     private final String rawRequestText;           // OTA 인입 고객 원문 요청사항
     private final String rawXmlPayload;            // OTA 전문 원형 (TLX XML 전문 원본)
 
-    // ==========================================
-    // 2. [가변] PMS 현장 운영 오버라이드 필드
-    // ==========================================
+    // 2. 가변: PMS 현장 운영에서 수정하는 값
     private String operationalGuestName;           // 현장 수정 투숙객 실명
     private LocalDate operationalCheckInDate;      // 현장 조정 체크인 일자
     private int operationalStayNights;             // 현장 연장/단축 반영 실 숙박 박수
@@ -43,7 +39,7 @@ public class Reservation {
     // 일자별 1박 단가 스케줄 (나이트 오딧 동적 룸차지 포스팅 기준)
     private DailyRateSchedule dailyRateSchedule;
 
-    // 14개 인자 마스터 생성자
+    // 모든 필드를 받는 기본 생성자
     public Reservation(String reservationId,
                        String guestName,
                        RoomType bookedRoomType,
@@ -122,9 +118,7 @@ public class Reservation {
                 rawRequestText, null, preference, TagPreference.empty(), null, null, null, LocalTime.of(15, 0));
     }
 
-    // ==========================================
     // PMS 현장 관리용 수정 메서드
-    // ==========================================
 
     public void updateOperationalDetails(String newGuestName, LocalDate newCheckInDate, Integer newStayNights, String staffMemo) {
         if (newGuestName != null && !newGuestName.isBlank()) {
@@ -217,9 +211,7 @@ public class Reservation {
         this.status = ReservationStatus.CANCELLED;
     }
 
-    // ==========================================
     // Getters
-    // ==========================================
     public String getReservationId() { return reservationId; }
     public String getOriginalGuestName() { return originalGuestName; }
     public RoomType getBookedRoomType() { return bookedRoomType; }
@@ -252,7 +244,7 @@ public class Reservation {
     public LocalTime getLateCheckOutTime() { return lateCheckOutTime; }
     public void grantLateCheckOut(LocalTime time) { this.lateCheckOutTime = time; }
 
-    // 🚀 Jackson이 JSON 직렬화 시 Folio 거래 목록을 최상위에 자동 포함하도록 지원
+    // Jackson이 JSON 직렬화 시 Folio 거래 목록을 최상위에 자동 포함하도록 지원
     public List<FolioTransaction> getTransactions() {
         return (this.paymentLedger != null) ? this.paymentLedger.getTransactions() : Collections.emptyList();
     }

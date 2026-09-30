@@ -116,15 +116,15 @@ public class InMemoryReservationRepository implements ReservationRepository {
             stream = stream.filter(r -> {
                 if (r.getCheckInDate() == null) return false;
 
-                // 1. 취소된 예약은 재실 대상에서 완전 배제[cite: 2]
+                // 1. 취소된 예약은 재실 대상에서 제외
                 if (r.getStatus() == ReservationStatus.CANCELLED) return false;
 
-                // 2. [조기 퇴실 방어] 이미 체크아웃한 고객은 실제 퇴실일(actualCheckOutDate) 기준으로 유효 종료일 재조정[cite: 2]
+                // 2. 조기 퇴실: 이미 체크아웃한 고객은 실제 퇴실일(actualCheckOutDate) 기준으로 유효 종료일 재조정
                 LocalDate effectiveCheckOut = (r.getStatus() == ReservationStatus.CHECKED_OUT && r.getActualCheckOutDate() != null)
                         ? r.getActualCheckOutDate()
                         : r.getCheckOutDate();
 
-                // 3. 체류 구간 판정: checkInDate <= target < effectiveCheckOut[cite: 2]
+                // 3. 체류 구간 판정: checkInDate <= target < effectiveCheckOut
                 return !target.isBefore(r.getCheckInDate()) && target.isBefore(effectiveCheckOut);
             });
         }
@@ -146,7 +146,7 @@ public class InMemoryReservationRepository implements ReservationRepository {
             stream = stream.filter(r -> roomQuery.equals(r.getAssignedRoomNumber()));
         }
 
-        // 🏷️ [신규] 태그 검색 조건: 선호/기피 태그 코드뿐만 아니라 한글/영문 원문 요청 메모(rawRequestText)까지 통합 매칭
+        // 태그 검색: 선호/기피 태그 코드와 원문 요청 메모(rawRequestText)를 함께 본다
         if (condition.tag() != null && !condition.tag().isBlank()) {
             String tagQuery = condition.tag().trim();
             String upperQuery = tagQuery.toUpperCase();

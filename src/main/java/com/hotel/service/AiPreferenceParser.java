@@ -32,9 +32,7 @@ public class AiPreferenceParser {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
-    // ==========================================
     // 1. 생성자 오버로딩 (구현체 InMemoryTagRepository 위임)
-    // ==========================================
 
     // [호환 1] Main, ReservationService 기본 생성자 호출부
     public AiPreferenceParser() {
@@ -51,7 +49,7 @@ public class AiPreferenceParser {
         this(new InMemoryTagRepository(), apiKey, config);
     }
 
-    // [마스터 생성자] 모든 의존성 주입 기준점
+    // 모든 의존성을 받는 기본 생성자
     public AiPreferenceParser(TagRepository tagRepository, String apiKey, AiModelConfig config) {
         this.tagRepository = (tagRepository != null) ? tagRepository : new InMemoryTagRepository();
         this.apiKey = apiKey;
@@ -62,9 +60,7 @@ public class AiPreferenceParser {
         this.objectMapper = new ObjectMapper();
     }
 
-    // ==========================================
     // 2. 단일 메모 파싱 (Single)
-    // ==========================================
     public TagPreference parse(String requestText) {
         if (requestText == null || requestText.trim().isEmpty()) {
             return TagPreference.empty();
@@ -101,9 +97,7 @@ public class AiPreferenceParser {
         }
     }
 
-    // ==========================================
     // 3. 대량 예약 일괄 파싱 (Batch - 단 1회 API 호출)
-    // ==========================================
     public Map<String, TagPreference> parseBatch(List<Reservation> reservations) {
         Map<String, TagPreference> resultMap = new HashMap<>();
         if (reservations == null || reservations.isEmpty()) {

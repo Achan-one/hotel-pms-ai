@@ -40,7 +40,7 @@ public class AppConfig {
         return jpaTagRepository;
     }
 
-    // 🚀 [추가] OTA 후불 정산(City Ledger) 저장소 빈 등록
+    // OTA 후불 정산(City Ledger) 저장소
     @Bean
     @Primary
     public CityLedgerRepository cityLedgerRepository(JpaCityLedgerRepository jpaCityLedgerRepository) {

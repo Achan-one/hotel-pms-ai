@@ -50,7 +50,7 @@ public class HotelOperationController {
     }
 
     /**
-     * 🚀 [누락되었던 핵심 메서드] 나이트 오딧 사전 점검: 당일 미체크인 도착 예정 건수 확인
+     * 나이트 오딧 사전 점검: 당일 미체크인 도착 예정 건수 확인
      * GET /api/system/unchecked-arrivals
      */
     @GetMapping("/unchecked-arrivals")
@@ -69,7 +69,7 @@ public class HotelOperationController {
     }
 
     /**
-     * 🚀 [누락되었던 핵심 메서드] 미체크인 예약 익일 일괄 이월 및 단축(체크인 +1일, 박수 -1, 0박 보존)
+     * 미체크인 예약을 익일로 일괄 이월하고 박수를 1박 줄인다 (체크인 +1일, 박수 -1, 0박은 보존)
      * POST /api/system/rollover-unchecked-arrivals
      */
     @PostMapping("/rollover-unchecked-arrivals")

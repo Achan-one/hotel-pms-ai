@@ -23,7 +23,7 @@ public class ChannelSyncService {
 
     /**
      * 일자별 각 룸타입의 (물리 공실 - 킵 수량)을 계산하여 표준 ARI 데이터 생성
-     * [논리 오류 수정] 수리/점검(OOO) 방 및 해당 일자 스케줄 점유를 완벽히 제외한 실제 판매 가능 공실 산출
+     * 수리/점검(OOO) 방과 해당 일자에 스케줄이 잡힌 방을 뺀 실제 판매 가능 공실 수를 구한다
      */
     public List<ChannelInventorySyncDto> calculateDailySellableInventory(LocalDate targetDate) {
         List<ChannelInventorySyncDto> results = new ArrayList<>();

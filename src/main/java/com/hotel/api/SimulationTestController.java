@@ -127,7 +127,7 @@ public class SimulationTestController {
     }
 
     /**
-     * 3. [개선] 기존 데이터를 지우지 않고 누적(Append) 추가되는 50건 인입
+     * 3. 기존 데이터를 지우지 않고 50건을 추가로 적재
      */
     @PostMapping("/bulk-simulate-50-and-30")
     public ResponseEntity<?> bulkSimulate50And30(@RequestBody(required = false) BulkSimulationRequest request) {
@@ -166,7 +166,7 @@ public class SimulationTestController {
         Random rand = new Random(batchTimestamp);
 
         for (int i = 0; i < 50; i++) {
-            // 고유 식별자 발급 (덮어쓰기 방어)
+            // 기존 예약을 덮어쓰지 않도록 고유 ID 발급
             String rsvId = String.format("BULK-%s-%03d-%d", selectedDate.toString().replace("-", ""), i + 1, batchTimestamp % 10000);
             String guestName = UNIQUE_GUEST_NAMES[i % UNIQUE_GUEST_NAMES.length];
             BookingChannelInfo.ChannelType channelType = OTA_TYPES[rand.nextInt(OTA_TYPES.length)];
@@ -236,7 +236,7 @@ public class SimulationTestController {
     }
 
     /**
-     * 5. [신규] 모든 설정 및 데이터 완벽 초기화 (Full Reset)
+     * 5. 모든 설정과 데이터 초기화 (Full Reset)
      * - 예약 전량 삭제
      * - 191실 공실화 및 커스텀 태그 초기화
      * - 기본 시스템 태그 7종 복원

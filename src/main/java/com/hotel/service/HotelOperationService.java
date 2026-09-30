@@ -1,6 +1,6 @@
 package com.hotel.service;
 
-import com.hotel.entity.HotelOperationStatusEntity; // 👈 entity 패키지 참조
+import com.hotel.entity.HotelOperationStatusEntity; // entity 패키지 참조
 import com.hotel.repository.jpa.SpringDataHotelOperationStatusRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

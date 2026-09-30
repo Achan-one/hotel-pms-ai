@@ -27,7 +27,7 @@ spring:
       # data.sql / schema.sql 중복 실행 방지
       mode: never
 
-  # 🚀 Flyway 활성화 (DB 형상 및 191실 시드 자동 관리)
+  # Flyway 활성화 (DB 형상 및 191실 시드 자동 관리)
   flyway:
     enabled: true
     baseline-on-migrate: true

@@ -47,7 +47,7 @@ public class TagScoringEngine {
             }
         }
 
-        // 2. 상반되는 물리적 조건 불일치 강력 감점 (-)
+        // 2. 상반되는 물리적 조건이면 크게 감점 (-)
         if (prefTags.contains(RoomTag.LOW_FLOOR.code()) && room.getFloor() >= 10) {
             score -= CONFLICT_PENALTY_SCORE;
         }
@@ -73,7 +73,7 @@ public class TagScoringEngine {
             }
         }
 
-        // 💡 4. [핵심 추가] 엄근진한 특수 태그 낭비 방지 감점 (Tag Waste / Inventory Preservation)
+        // 4. 특수 태그 객실을 요청하지 않은 손님에게 배정하지 않도록 감점 (Tag Waste)
         // 고객이 요구하지 않은 특수 마케팅 태그나 희소 태그를 방이 가지고 있다면, 그 방의 가치를 보존하기 위해 감점 부여
         for (String roomTagCode : roomTags) {
             // 건축 도면 기본 물리 태그(고층, 저층, 엘베인접, 코너 등)는 일반 방에도 기본 분포하므로 낭비 감점에서 제외
@@ -94,7 +94,7 @@ public class TagScoringEngine {
             }
         }
 
-        // 5. 연박 가중치: 점수가 양수일 때만 1.3배 증폭 (음수 감점이 완화되지 않도록 방어)
+        // 5. 연박 가중치: 점수가 양수일 때만 1.3배 증폭 (음수 감점이 완화되지 않도록 양수일 때만 적용)
         if (stayNights >= 3 && score > 0) {
             score = (int) (score * 1.3);
         }
