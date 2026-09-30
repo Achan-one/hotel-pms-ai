@@ -1,0 +1,62 @@
+name: AI Eval
+
+# 실제 Gemini API로 태그 추출 정확도를 재는 평가. 비용이 들기 때문에 수동으로만 실행한다.
+# 사용 전 저장소 Settings > Secrets and variables > Actions 에 GEMINI_API_KEY 를 등록해야 한다.
+on:
+  workflow_dispatch:
+    inputs:
+      min_f1:
+        description: "이 F1 미만이면 실패로 처리 (비워 두면 점수만 기록)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  ai-eval:
+    name: Tag extraction accuracy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run evaluation
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL_NAME: gemini-2.5-flash
+          MIN_F1: ${{ inputs.min_f1 }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::GEMINI_API_KEY 시크릿이 등록되어 있지 않습니다."
+            exit 1
+          fi
+          if [ -n "$MIN_F1" ]; then
+            ./gradlew aiEval --no-daemon -Dai.eval.min-f1="$MIN_F1"
+          else
+            ./gradlew aiEval --no-daemon
+          fi
+
+      # 결과를 실행 요약 화면에도 바로 보여 준다.
+      - name: Show report
+        if: always()
+        run: |
+          if [ -f build/reports/ai-eval/report.md ]; then
+            cat build/reports/ai-eval/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-eval-report
+          path: build/reports/ai-eval
+          retention-days: 30
