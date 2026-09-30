@@ -1,4 +1,8 @@
 spring:
+  config:
+    # 프로젝트 루트의 .env를 직접 읽는다. 실제 OS 환경변수가 있으면 그쪽이 우선한다.
+    import: optional:file:.env[.properties]
+
   datasource:
     # 포트, DB명, 비밀번호를 환경 변수(${MYSQL_...})로부터 주입받고, 없을 경우 기본값(:3307 등)을 사용하도록 구성
     url: jdbc:mysql://localhost:${MYSQL_PORT:3307}/${MYSQL_DATABASE:hotel_pms}?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Seoul
