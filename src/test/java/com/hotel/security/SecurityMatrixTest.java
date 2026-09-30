@@ -89,6 +89,9 @@ class SecurityMatrixTest {
                 Arguments.of(HttpMethod.PUT, "/api/reservations/R1/daily-rates", part),
                 Arguments.of(HttpMethod.POST, "/api/reservations/night-audit", part),
                 Arguments.of(HttpMethod.GET, "/api/accounting/city-ledger", part),
+                // 배정 점수 내역은 관리자 전용이다
+                Arguments.of(HttpMethod.GET, "/api/reports/assignment-scores/csv", staff),
+                Arguments.of(HttpMethod.GET, "/api/reports/assignment-scores/csv", part),
                 // dev 전용 개발자 콘솔 API도 아르바이트는 쓸 수 없다
                 Arguments.of(HttpMethod.POST, "/api/simulation/clear", part),
                 Arguments.of(HttpMethod.POST, "/api/simulation/bulk-simulate-50-and-30", part),

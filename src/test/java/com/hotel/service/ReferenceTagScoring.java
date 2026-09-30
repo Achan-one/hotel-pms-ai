@@ -4,42 +4,30 @@ import com.hotel.domain.Room;
 import com.hotel.domain.RoomTag;
 import com.hotel.domain.TagPreference;
 import com.hotel.repository.TagRepository;
-import com.hotel.service.dto.ScoreBreakdown;
-import com.hotel.service.dto.ScoreBreakdown.Category;
-import com.hotel.service.dto.ScoreBreakdown.Component;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-public class TagScoringEngine {
+/**
+ * 점수 내역(ScoreBreakdown)을 도입하기 전의 TagScoringEngine 계산을 그대로 옮겨 둔 기준 구현.
+ * 리팩터링 뒤의 총점이 옛 알고리즘과 한 점도 다르지 않은지 비교하는 데만 쓴다. 운영 코드에서 쓰지 않는다.
+ */
+final class ReferenceTagScoring {
+
+    private static final int DEFAULT_BASE_SCORE = 20;
+    private static final int CONFLICT_PENALTY_SCORE = 45;
 
     private final TagRepository tagRepository;
-    private static final int DEFAULT_BASE_SCORE = 20;
-    private static final int CONFLICT_PENALTY_SCORE = 45; // 정반대 물리 조건 불일치 감점
 
-    public TagScoringEngine(TagRepository tagRepository) {
+    ReferenceTagScoring(TagRepository tagRepository) {
         this.tagRepository = tagRepository;
     }
 
-    public TagScoringEngine() {
-        this(null);
-    }
-
-    public int calculateScore(Room room, TagPreference tagPref, int stayNights) {
-        return explain(room, tagPref, stayNights).total();
-    }
-
-    /**
-     * 점수를 규칙별 항목으로 나눠 돌려준다. 총점 계산(calculateScore)도 이 결과의 합이라서 둘이 어긋날 수 없다.
-     */
-    public ScoreBreakdown explain(Room room, TagPreference tagPref, int stayNights) {
+    int score(Room room, TagPreference tagPref, int stayNights) {
         if (room == null) {
-            return ScoreBreakdown.of(List.of());
+            return 0;
         }
 
-        List<Component> parts = new ArrayList<>();
         int score = 0;
         Set<String> roomTags = room.getTags();
         Set<String> prefTags = (tagPref != null) ? tagPref.preferredTags() : Set.of();
@@ -56,22 +44,18 @@ public class TagScoringEngine {
                         tagWeight = tagOpt.get().defaultWeight();
                     }
                 }
-                parts.add(new Component(Category.PREFERRED_MATCH, upperCode, tagWeight));
                 score += tagWeight;
             }
         }
 
         // 2. 상반되는 물리적 조건이면 크게 감점 (-)
         if (prefTags.contains(RoomTag.LOW_FLOOR.code()) && room.getFloor() >= 10) {
-            parts.add(new Component(Category.CONFLICT, RoomTag.LOW_FLOOR.code() + " 요청인데 10층 이상", -CONFLICT_PENALTY_SCORE));
             score -= CONFLICT_PENALTY_SCORE;
         }
         if (prefTags.contains(RoomTag.HIGH_FLOOR.code()) && room.getFloor() <= 6) {
-            parts.add(new Component(Category.CONFLICT, RoomTag.HIGH_FLOOR.code() + " 요청인데 6층 이하", -CONFLICT_PENALTY_SCORE));
             score -= CONFLICT_PENALTY_SCORE;
         }
         if (prefTags.contains(RoomTag.NEAR_ELEVATOR.code()) && !room.isNearElevator()) {
-            parts.add(new Component(Category.CONFLICT, RoomTag.NEAR_ELEVATOR.code() + " 요청인데 엘리베이터에서 멂", -CONFLICT_PENALTY_SCORE));
             score -= CONFLICT_PENALTY_SCORE;
         }
 
@@ -86,7 +70,6 @@ public class TagScoringEngine {
                         penalty = Math.max(30, (int) (tagOpt.get().defaultWeight() * 1.5));
                     }
                 }
-                parts.add(new Component(Category.AVOID_MATCH, upperCode, -penalty));
                 score -= penalty;
             }
         }
@@ -108,22 +91,20 @@ public class TagScoringEngine {
                         wastePenalty = tagOpt.get().defaultWeight(); // 해당 태그의 가중치만큼 감점!
                     }
                 }
-                parts.add(new Component(Category.TAG_WASTE, roomTagCode, -wastePenalty));
                 score -= wastePenalty;
             }
         }
 
         // 5. 연박 가중치: 점수가 양수일 때만 1.3배 증폭 (음수 감점이 완화되지 않도록 양수일 때만 적용)
         if (stayNights >= 3 && score > 0) {
-            int amplified = (int) (score * 1.3);
-            parts.add(new Component(Category.LONG_STAY, stayNights + "박, 양수 점수 x1.3", amplified - score));
+            score = (int) (score * 1.3);
         }
 
-        return ScoreBreakdown.of(parts);
+        return score;
     }
 
     // 전 층에 흔하게 깔려있는 기본 물리 태그인지 판별 (이 태그들은 낭비 감점에서 제외)
-    private boolean isPervasivePhysicalTag(String tagCode) {
+    boolean isPervasivePhysicalTag(String tagCode) {
         return RoomTag.HIGH_FLOOR.code().equals(tagCode)
                 || RoomTag.LOW_FLOOR.code().equals(tagCode)
                 || RoomTag.NEAR_ELEVATOR.code().equals(tagCode)

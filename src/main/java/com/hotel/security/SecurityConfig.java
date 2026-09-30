@@ -102,6 +102,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/reservations/*/lock").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 6. 실무 리포트 CSV 다운로드
+                        // 배정 점수 내역은 배정 규칙의 계산 방식이 드러나므로 관리자만 받을 수 있다. 아래 일반 규칙보다 먼저 선언한다.
+                        .requestMatchers(HttpMethod.GET, "/api/reports/assignment-scores/csv").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/reports/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_STAFF", "ROLE_PART_TIME")
 
                         // 7. 시뮬레이터 및 나이트 오딧 실행

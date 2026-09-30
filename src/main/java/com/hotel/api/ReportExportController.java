@@ -71,6 +71,21 @@ public class ReportExportController {
     }
 
     /**
+     * 배정 점수 내역 CSV 다운로드 (관리자 전용).
+     * 배정 규칙의 계산 내역이 드러나므로 일반 직원에게는 노출하지 않는다.
+     */
+    @GetMapping("/assignment-scores/csv")
+    public ResponseEntity<byte[]> downloadAssignmentScoresCsv(@RequestParam String checkInDate) {
+        LocalDate date = LocalDate.parse(checkInDate.trim());
+
+        String csvString = reportExportService.exportAssignmentScoresToCsv(date);
+        byte[] csvBytes = withBom(csvString);
+
+        String fileName = URLEncoder.encode("배정점수내역_" + date + ".csv", StandardCharsets.UTF_8).replace("+", "%20");
+        return createCsvResponse(csvBytes, fileName);
+    }
+
+    /**
      * 3. 태그 & 요청사항 리스트 CSV 다운로드 (배정객실보유태그 포함)
      */
     @GetMapping("/special-requests/csv")

@@ -5,6 +5,7 @@ import com.hotel.repository.ReservationRepository;
 import com.hotel.repository.RoomRepository;
 import com.hotel.service.RoomAssigner;
 import com.hotel.service.dto.AssignmentAlert;
+import com.hotel.service.dto.ScoreBreakdown;
 import com.hotel.service.dto.ReservationSearchCondition;
 import com.hotel.service.report.dto.*;
 import com.hotel.service.report.dto.HousekeepingWorkItemDto.CleanPriority;
@@ -80,6 +81,64 @@ public class ReportExportService {
         );
 
         return CsvSerializer.serialize(headers, mappers, list);
+    }
+
+    /**
+     * 배정 점수 내역 (관리자 전용). 체크인 일자가 checkInDate이고 객실이 배정된 예약마다,
+     * 배정된 방이 왜 그 점수를 받았는지 규칙별로 나눠서 보여 준다.
+     * 배정 당시의 다른 후보 방과의 비교는 포함하지 않는다(그 시점의 공실 상황을 재현할 수 없다).
+     * 투숙객 이름은 넣지 않는다. 점수 검증에는 필요 없다.
+     */
+    public String exportAssignmentScoresToCsv(LocalDate checkInDate) {
+        Objects.requireNonNull(checkInDate, "체크인 일자는 필수입니다.");
+
+        List<Reservation> assigned = reservationRepository.findByCheckInDate(checkInDate).stream()
+                .filter(r -> r.getStatus() != ReservationStatus.CANCELLED && r.isAssigned())
+                .toList();
+        if (assigned.size() > ReportPolicy.MAX_ROW_LIMIT) {
+            throw new IllegalStateException(String.format(
+                    "조회 데이터 한도 초과 (%d건). 최대 출력 한도는 %d건입니다.", assigned.size(), ReportPolicy.MAX_ROW_LIMIT));
+        }
+
+        record ScoredRow(Reservation reservation, Room room, ScoreBreakdown breakdown, List<String> unmetHard) {}
+
+        List<ScoredRow> rows = new ArrayList<>();
+        for (Reservation r : assigned) {
+            Optional<Room> room = roomRepository.findByRoomNumber(r.getAssignedRoomNumber());
+            if (room.isEmpty()) continue;
+            rows.add(new ScoredRow(r, room.get(),
+                    roomAssigner.explainScore(room.get(), r.getPreference(), r.getTagPreference(), r.getStayNights()),
+                    roomAssigner.unmetHardRequestTagNames(r, room.get())));
+        }
+        rows.sort(Comparator.comparing((ScoredRow row) -> row.reservation().getAssignedRoomNumber())
+                .thenComparing(row -> row.reservation().getReservationId()));
+
+        List<ScoreBreakdown.Category> categories = List.of(ScoreBreakdown.Category.values());
+        List<String> headers = new ArrayList<>(List.of(
+                "PMS예약번호", "예약ID", "객실타입", "체크인", "박수", "상태", "배정호실", "층", "객실 보유 태그", "희망 태그", "기피 태그", "총점"));
+        categories.forEach(c -> headers.add(c.label()));
+        headers.addAll(List.of("필수(HARD) 미충족", "점수 내역"));
+
+        List<Function<ScoredRow, Object>> mappers = new ArrayList<>(List.of(
+                row -> row.reservation().getPmsReservationNo() != null ? row.reservation().getPmsReservationNo() : "",
+                row -> row.reservation().getReservationId(),
+                row -> row.reservation().getBookedRoomType().getDescription(),
+                row -> row.reservation().getCheckInDate(),
+                row -> row.reservation().getStayNights(),
+                row -> row.reservation().getStatus().getTitle(),
+                row -> row.reservation().getAssignedRoomNumber(),
+                row -> row.room().getFloor(),
+                row -> String.join(" ", new TreeSet<>(row.room().getTags())),
+                row -> String.join(" ", new TreeSet<>(row.reservation().getTagPreference().preferredTags())),
+                row -> String.join(" ", new TreeSet<>(row.reservation().getTagPreference().avoidTags())),
+                row -> row.breakdown().total()));
+        for (ScoreBreakdown.Category category : categories) {
+            mappers.add(row -> row.breakdown().totalsByCategory().getOrDefault(category, 0));
+        }
+        mappers.add(row -> String.join(", ", row.unmetHard()));
+        mappers.add(row -> row.breakdown().describe());
+
+        return CsvSerializer.serialize(headers, mappers, rows);
     }
 
     // 2. 당일 도착 예정자 명단 (Arrivals List)

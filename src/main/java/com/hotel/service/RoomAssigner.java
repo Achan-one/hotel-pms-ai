@@ -8,6 +8,7 @@ import com.hotel.repository.RoomRepository;
 import com.hotel.repository.TagRepository;
 import com.hotel.repository.memory.InMemoryTagRepository;
 import com.hotel.service.dto.AssignmentAlert;
+import com.hotel.service.dto.ScoreBreakdown;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -141,6 +142,22 @@ public class RoomAssigner {
         return minCount == Long.MAX_VALUE ? 0 : minCount;
     }
 
+    /**
+     * 고객이 필수(HARD)로 요청했지만 배정된 방이 갖고 있지 않은 태그의 이름. 배정 점수 엑스포트에서 쓴다.
+     */
+    public List<String> unmetHardRequestTagNames(Reservation reservation, Room assignedRoom) {
+        if (reservation == null || assignedRoom == null || reservation.getTagPreference() == null) {
+            return List.of();
+        }
+        List<String> unmet = new ArrayList<>();
+        for (String code : reservation.getTagPreference().preferredTags()) {
+            tagRepository.findByCode(code)
+                    .filter(tag -> tag.strictness().isHard() && !assignedRoom.hasTag(tag.code()))
+                    .ifPresent(tag -> unmet.add(tag.name()));
+        }
+        return unmet;
+    }
+
     public List<AssignmentAlert> checkHardRequestAlerts(Reservation reservation, Room assignedRoom) {
         if (reservation == null || assignedRoom == null) return List.of();
 
@@ -208,16 +225,29 @@ public class RoomAssigner {
     }
 
     public int calculateScore(Room room, GuestPreference pref, TagPreference tagPref, int stayNights) {
-        int totalScore = 0;
+        return explainScore(room, pref, tagPref, stayNights).total();
+    }
+
+    /**
+     * 배정 점수를 규칙별 항목으로 나눠 돌려준다. calculateScore는 이 결과의 합이라 둘이 어긋날 수 없다.
+     * 관리자가 배정 결과를 검증하는 데 쓴다.
+     */
+    public ScoreBreakdown explainScore(Room room, GuestPreference pref, TagPreference tagPref, int stayNights) {
+        List<ScoreBreakdown.Component> parts = new ArrayList<>();
 
         if (tagPref != null && !tagPref.isEmpty()) {
-            totalScore += tagScoringEngine.calculateScore(room, tagPref, stayNights);
+            parts.addAll(tagScoringEngine.explain(room, tagPref, stayNights).components());
         } else {
-            totalScore += calculateScore(room, pref, stayNights);
+            parts.addAll(explainGuestPreference(room, pref, stayNights).components());
         }
 
-        totalScore += calculateConservativeFloorAdjustment(room, pref, tagPref, stayNights);
-        return totalScore;
+        int floorAdjustment = calculateConservativeFloorAdjustment(room, pref, tagPref, stayNights);
+        if (floorAdjustment != 0) {
+            parts.add(new ScoreBreakdown.Component(ScoreBreakdown.Category.FLOOR_ADJUSTMENT,
+                    floorAdjustment < 0 ? "고층을 요청하지 않은 단기 투숙객에게 10층 이상 배정 억제" : "2박 이하 단기 투숙객에게 저층 우대",
+                    floorAdjustment));
+        }
+        return ScoreBreakdown.of(parts);
     }
 
     private int calculateConservativeFloorAdjustment(Room room, GuestPreference pref, TagPreference tagPref, int stayNights) {
@@ -236,40 +266,75 @@ public class RoomAssigner {
     }
 
     public int calculateScore(Room room, GuestPreference pref, int stayNights) {
+        return explainGuestPreference(room, pref, stayNights).total();
+    }
+
+    // 태그 없이 고객의 층, 엘리베이터, 코너 선호(GuestPreference)만으로 매기는 점수의 내역
+    private ScoreBreakdown explainGuestPreference(Room room, GuestPreference pref, int stayNights) {
+        List<ScoreBreakdown.Component> parts = new ArrayList<>();
         int baseScore = 0;
 
         if (pref != null) {
             if (pref.getFloorPref() == FloorPref.HIGH) {
-                baseScore += (room.getFloor() >= 10) ? 15 : -10;
+                int points = (room.getFloor() >= 10) ? 15 : -10;
+                parts.add(guestPref("고층 선호", points));
+                baseScore += points;
             } else if (pref.getFloorPref() == FloorPref.LOW) {
-                baseScore += (room.getFloor() <= 6) ? 15 : -10;
+                int points = (room.getFloor() <= 6) ? 15 : -10;
+                parts.add(guestPref("저층 선호", points));
+                baseScore += points;
             }
 
             if (pref.getElevatorPref() == ElevatorPref.NEAR) {
-                baseScore += room.isNearElevator() ? 20 : -10;
+                int points = room.isNearElevator() ? 20 : -10;
+                parts.add(guestPref("엘리베이터 인접 선호", points));
+                baseScore += points;
             } else if (pref.getElevatorPref() == ElevatorPref.AWAY) {
-                baseScore += !room.isNearElevator() ? 20 : -15;
+                int points = !room.isNearElevator() ? 20 : -15;
+                parts.add(guestPref("엘리베이터 이격 선호", points));
+                baseScore += points;
             }
 
             if (pref.getCornerPref() == CornerPref.PREFER) {
-                baseScore += room.isCorner() ? 10 : 0;
+                int points = room.isCorner() ? 10 : 0;
+                if (points != 0) parts.add(guestPref("코너룸 선호", points));
+                baseScore += points;
             } else if (pref.getCornerPref() == CornerPref.AVOID) {
-                baseScore += !room.isCorner() ? 10 : -5;
+                int points = !room.isCorner() ? 10 : -5;
+                parts.add(guestPref("코너룸 기피", points));
+                baseScore += points;
             }
 
             if (pref.isPreferQuiet()) {
-                if (!room.isNearElevator()) baseScore += 15;
-                if (room.isCorner()) baseScore += 10;
+                if (!room.isNearElevator()) {
+                    parts.add(guestPref("조용한 방 선호(엘리베이터에서 멂)", 15));
+                    baseScore += 15;
+                }
+                if (room.isCorner()) {
+                    parts.add(guestPref("조용한 방 선호(코너룸)", 10));
+                    baseScore += 10;
+                }
             }
         }
 
         if (stayNights >= 3) {
-            baseScore = (int) (baseScore * 1.3);
-            if (!room.isNearElevator()) baseScore += 10;
-            if (room.isCorner()) baseScore += 5;
+            int amplified = (int) (baseScore * 1.3);
+            if (amplified != baseScore) {
+                parts.add(new ScoreBreakdown.Component(ScoreBreakdown.Category.LONG_STAY, stayNights + "박, 점수 x1.3", amplified - baseScore));
+            }
+            if (!room.isNearElevator()) {
+                parts.add(new ScoreBreakdown.Component(ScoreBreakdown.Category.LONG_STAY, "연박 + 엘리베이터에서 멂", 10));
+            }
+            if (room.isCorner()) {
+                parts.add(new ScoreBreakdown.Component(ScoreBreakdown.Category.LONG_STAY, "연박 + 코너룸", 5));
+            }
         }
 
-        return baseScore;
+        return ScoreBreakdown.of(parts);
+    }
+
+    private static ScoreBreakdown.Component guestPref(String detail, int points) {
+        return new ScoreBreakdown.Component(ScoreBreakdown.Category.GUEST_PREFERENCE, detail, points);
     }
 
     public QuotaPolicy getQuotaPolicy() {
