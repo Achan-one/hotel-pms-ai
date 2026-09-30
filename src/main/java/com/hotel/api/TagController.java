@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/admin/tags")
@@ -127,6 +128,128 @@ public class TagController {
 
         return ResponseEntity.ok(ApiResponse.ok(
                 String.format("[%s] 태그가 삭제되었습니다.", target.name()),
+                null
+        ));
+    }
+    public record TagRoomMappingUpdateRequest(
+            List<String> targetRoomNumbers
+    ) {}
+
+    /**
+     * 특정 태그(기본/커스텀 무관)의 191실 매핑 전체 갱신
+     * PUT /api/admin/tags/{tagCode}/rooms
+     */
+    @PutMapping("/{tagCode}/rooms")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_STAFF')")
+    public ResponseEntity<ApiResponse<Void>> updateRoomsForTag(
+            @PathVariable("tagCode") String tagCode,
+            @RequestBody TagRoomMappingUpdateRequest request) {
+
+        String decodedCode;
+        try {
+            decodedCode = java.net.URLDecoder.decode(tagCode, java.nio.charset.StandardCharsets.UTF_8).trim().toUpperCase();
+        } catch (Exception e) {
+            decodedCode = tagCode.trim().toUpperCase();
+        }
+
+        final String targetCode = decodedCode;
+        RoomTag targetTag = tagRepository.findByCode(targetCode)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 태그입니다: " + targetCode));
+
+        Set<String> newRoomNumbers = (request.targetRoomNumbers() != null)
+                ? request.targetRoomNumbers().stream().map(this::normalizeRoomNumber).collect(java.util.stream.Collectors.toSet())
+                : Set.of();
+
+        // 191개 전체 객실을 순회하며 해당 태그 반영 상태를 일괄 동기화
+        for (Room room : roomRepository.findAll()) {
+            boolean shouldHaveTag = newRoomNumbers.contains(room.getRoomNumber());
+            boolean currentlyHasTag = room.hasTag(targetCode);
+
+            if (shouldHaveTag && !currentlyHasTag) {
+                room.addTag(targetCode);
+                roomRepository.save(room);
+            } else if (!shouldHaveTag && currentlyHasTag) {
+                room.removeTag(targetCode);
+                roomRepository.save(room);
+            }
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(
+                String.format("[%s] 태그의 객실 매핑(총 %d실)이 성공적으로 반영되었습니다.", targetTag.name(), newRoomNumbers.size()),
+                null
+        ));
+    }
+
+    public record TagFullUpdateRequest(
+            String name,
+            String description,
+            RoomTag.TagCategory category,
+            TagStrictness strictness,
+            Integer defaultWeight,
+            List<String> targetRoomNumbers
+    ) {}
+
+    /**
+     * 태그 속성 및 191실 매핑 일괄 편집 (통합 수정 API)
+     * PUT /api/admin/tags/{tagCode}
+     */
+    @PutMapping("/{tagCode}")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_STAFF')")
+    public ResponseEntity<ApiResponse<Void>> updateTagFull(
+            @PathVariable("tagCode") String tagCode,
+            @RequestBody TagFullUpdateRequest request) {
+
+        String decodedCode;
+        try {
+            decodedCode = java.net.URLDecoder.decode(tagCode, java.nio.charset.StandardCharsets.UTF_8).trim().toUpperCase();
+        } catch (Exception e) {
+            decodedCode = tagCode.trim().toUpperCase();
+        }
+
+        final String targetCode = decodedCode;
+        RoomTag existingTag = tagRepository.findByCode(targetCode)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 태그입니다: " + targetCode));
+
+        // 1. 커스텀 태그인 경우에만 메타데이터(이름, 설명, 점수 등) 갱신 허용
+        if (!existingTag.isSystemDefault()) {
+            String newName = (request.name() != null && !request.name().isBlank()) ? request.name().trim() : existingTag.name();
+            String newDesc = (request.description() != null && !request.description().isBlank()) ? request.description().trim() : existingTag.description();
+            RoomTag.TagCategory newCategory = (request.category() != null) ? request.category() : existingTag.category();
+            TagStrictness newStrictness = (request.strictness() != null) ? request.strictness() : existingTag.strictness();
+            int newWeight = (request.defaultWeight() != null && request.defaultWeight() > 0) ? request.defaultWeight() : existingTag.defaultWeight();
+
+            RoomTag updatedTag = new RoomTag(
+                    targetCode,
+                    newName,
+                    newDesc,
+                    newCategory,
+                    newStrictness,
+                    newWeight,
+                    false
+            );
+            tagRepository.save(updatedTag);
+        }
+
+        // 2. 191실 객실 매핑 반영 (기본 태그, 커스텀 태그 공통 지원)
+        Set<String> newRoomNumbers = (request.targetRoomNumbers() != null)
+                ? request.targetRoomNumbers().stream().map(this::normalizeRoomNumber).collect(java.util.stream.Collectors.toSet())
+                : Set.of();
+
+        for (Room room : roomRepository.findAll()) {
+            boolean shouldHaveTag = newRoomNumbers.contains(room.getRoomNumber());
+            boolean currentlyHasTag = room.hasTag(targetCode);
+
+            if (shouldHaveTag && !currentlyHasTag) {
+                room.addTag(targetCode);
+                roomRepository.save(room);
+            } else if (!shouldHaveTag && currentlyHasTag) {
+                room.removeTag(targetCode);
+                roomRepository.save(room);
+            }
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(
+                String.format("[%s] 태그 정보 및 객실 배치(총 %d실)가 성공적으로 저장되었습니다.", existingTag.name(), newRoomNumbers.size()),
                 null
         ));
     }

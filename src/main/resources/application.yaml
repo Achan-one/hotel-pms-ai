@@ -1,22 +1,28 @@
 spring:
   datasource:
-    # 프로젝트 루트 경로에 pmsdb.mv.db 파일 형태로 저장되어 서버 재시작 시에도 유지됩니다.
-    url: jdbc:h2:file:./pmsdb;DB_CLOSE_ON_EXIT=FALSE;AUTO_RECONNECT=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
+    url: jdbc:mysql://localhost:3306/hotel_pms?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Seoul
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: root1234
+
   jpa:
     hibernate:
-      ddl-auto: update
-    defer-datasource-initialization: true
+      # Flyway가 DDL을 담당하므로 JPA 스키마 자동 생성을 끕니다.
+      ddl-auto: validate
     show-sql: true
     properties:
       hibernate:
         format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+    defer-datasource-initialization: false
+
   sql:
     init:
-      mode: always # 서버 기동 시 resources/data.sql을 읽어 초기 도면을 적재
+      mode: never
+
+  # 🚀 Flyway 활성화
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration

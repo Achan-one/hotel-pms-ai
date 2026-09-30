@@ -27,18 +27,23 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 
-    // 3. DB (Spring Data JPA & H2)
+    // 3. DB (Spring Data JPA & MySQL)
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
-    implementation("com.h2database:h2")
+    runtimeOnly("com.mysql:mysql-connector-j")
 
-    // 4. Jackson
+    // 4. DB 형상 관리 (Flyway Core & MySQL 모듈)
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-mysql")
+
+    // 5. Jackson
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 
-    // 5. 테스트 (JUnit 5 + Spring Boot Test + Security Test)
+    // 6. 테스트 (JUnit 5 + Spring Boot Test + Security Test + Test H2)
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("com.h2database:h2")
 }
 
 tasks.withType<Test> {
